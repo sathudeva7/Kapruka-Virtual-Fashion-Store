@@ -1,0 +1,32 @@
+# Keep the build context (and final image) small + reproducible.
+
+# Python virtualenv and caches — deps come from requirements.txt in the image.
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Frontend: node_modules and any local build are rebuilt in the Docker stage.
+frontend/node_modules/
+frontend/out/
+frontend/.next/
+
+# Runtime output — generated try-on images are written fresh in the container.
+static/generated/*
+!static/generated/.gitkeep
+
+# Secrets and local env — injected at runtime (Secrets Manager / task env), never baked in.
+.env
+.env.local
+frontend/.env.local
+
+# Local tooling / VCS noise.
+.git/
+.gitignore
+.DS_Store
+*.log
+.claude/
+# macOS AppleDouble resource forks — unreadable xattrs break the build context.
+._*
+**/._*

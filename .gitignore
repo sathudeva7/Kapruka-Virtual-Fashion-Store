@@ -1,0 +1,32 @@
+# ---- Secrets: NEVER upload these ----
+.env
+*.env
+!example.env
+
+# ---- Python virtual environment (1.5GB, rebuilt from requirements.txt) ----
+.venv/
+venv/
+
+# ---- Python cache files ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ---- Runtime-generated output (created while the app runs) ----
+static/generated/
+
+# ---- Tool / editor folders ----
+.adk/
+.claude/
+
+# ---- Frontend (Next.js) rebuildable / generated folders ----
+frontend/node_modules/
+frontend/out/
+frontend/.next/
+frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo
+node_modules/
+
+# ---- macOS junk files ----
+.DS_Store
+._*

@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kapruka Fashion Stylist</title>
+  <style>
+    :root {
+      --bg: #0f1413;
+      --panel: #161d1b;
+      --panel-2: #1d2624;
+      --line: #28332f;
+      --accent: #2bbf6a;
+      --accent-dim: #1d8a4c;
+      --text: #e8efe9;
+      --muted: #8aa093;
+      --user: #214b39;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: radial-gradient(1200px 600px at 70% -10%, #16261d 0%, var(--bg) 55%);
+      color: var(--text);
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex; justify-content: center;
+    }
+    .app {
+      width: min(760px, 100%);
+      height: 100dvh;
+      display: flex; flex-direction: column;
+    }
+    header {
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .logo {
+      width: 34px; height: 34px; border-radius: 9px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+      display: grid; place-items: center; font-weight: 800; color: #05130b;
+    }
+    header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+    header p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-left: auto; box-shadow: 0 0 0 4px rgba(43,191,106,.12); }
+
+    #log {
+      flex: 1; overflow-y: auto; padding: 22px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .msg { display: flex; gap: 10px; max-width: 88%; }
+    .msg .avatar {
+      width: 28px; height: 28px; border-radius: 8px; flex: 0 0 28px;
+      display: grid; place-items: center; font-size: 13px; font-weight: 700;
+    }
+    .bubble {
+      padding: 10px 14px; border-radius: 14px;
+      background: var(--panel-2); border: 1px solid var(--line);
+      white-space: pre-wrap; word-wrap: break-word;
+    }
+    .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+    .msg.user .avatar { background: var(--user); color: var(--text); }
+    .msg.user .bubble { background: var(--user); border-color: #2c6049; }
+    .msg.bot .avatar { background: linear-gradient(135deg, var(--accent), var(--accent-dim)); color: #05130b; }
+
+    .meta { font-size: 12px; color: var(--muted); padding: 2px 0; }
+    .tool-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--accent);
+      background: rgba(43,191,106,.08); border: 1px solid rgba(43,191,106,.25);
+      padding: 4px 10px; border-radius: 999px;
+    }
+    .typing span { display: inline-block; width: 6px; height: 6px; margin: 0 1px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
+    .typing span:nth-child(2){ animation-delay:.2s } .typing span:nth-child(3){ animation-delay:.4s }
+    @keyframes blink { 0%,80%,100%{ opacity:.25 } 40%{ opacity:1 } }
+
+    .product-grid {
+      display: grid; gap: 12px;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      margin: 2px 0 4px;
+    }
+    .card {
+      background: var(--panel-2); border: 1px solid var(--line);
+      border-radius: 14px; overflow: hidden; display: flex; flex-direction: column;
+      transition: transform .12s ease, border-color .12s ease;
+    }
+    .card:hover { transform: translateY(-2px); border-color: var(--accent-dim); }
+    .card .thumb {
+      aspect-ratio: 1 / 1; background: #0c100f; display: grid; place-items: center;
+    }
+    .card .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .card-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 5px; }
+    .card-name { font-size: 13px; font-weight: 600; line-height: 1.3;
+      display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .card-price { font-size: 14px; font-weight: 700; color: var(--accent); }
+    .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; display: inline-block; }
+    .badge.in { color: var(--accent); background: rgba(43,191,106,.1); border: 1px solid rgba(43,191,106,.25); }
+    .badge.out { color: #ff8a8a; background: rgba(255,138,138,.08); border: 1px solid rgba(255,138,138,.25); }
+    .card-link { font-size: 12px; color: var(--muted); text-decoration: none; margin-top: 2px; }
+    .card-link:hover { color: var(--accent); }
+    .outfit-label {
+      font-size: 12px; font-weight: 700; letter-spacing: .4px;
+      color: var(--accent); margin: 8px 0 -8px;
+    }
+    .tryon-btn {
+      margin-top: 4px; padding: 6px 10px; font-size: 12px; font-weight: 600;
+      border-radius: 8px; background: var(--panel); color: var(--accent);
+      border: 1px solid rgba(43,191,106,.35); cursor: pointer;
+    }
+    .tryon-btn:hover { background: rgba(43,191,106,.1); }
+    .tryon-bubble img { max-width: 300px; width: 100%; border-radius: 10px; display: block; }
+    .tryon-cap { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .pay-btn {
+      display: inline-block; text-decoration: none; margin-top: 4px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+      color: #05130b; font-weight: 700; padding: 10px 18px; border-radius: 10px;
+    }
+    .pay-btn:hover { filter: brightness(1.08); }
+    .photo-btn {
+      background: var(--panel); color: var(--text); font-size: 17px;
+      border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px;
+    }
+    .photo-btn:hover { border-color: var(--accent-dim); }
+    #photoThumb {
+      width: 42px; height: 42px; border-radius: 50%; object-fit: cover;
+      border: 2px solid var(--accent-dim); display: none; flex: 0 0 42px;
+    }
+
+    footer { padding: 14px 18px 18px; border-top: 1px solid var(--line); }
+    form { display: flex; gap: 10px; align-items: flex-end; }
+    textarea {
+      flex: 1; resize: none; max-height: 140px;
+      background: var(--panel); color: var(--text);
+      border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px 14px; font: inherit; outline: none;
+    }
+    textarea:focus { border-color: var(--accent-dim); }
+    button {
+      background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+      color: #05130b; font-weight: 700; border: 0; cursor: pointer;
+      border-radius: 12px; padding: 12px 18px;
+    }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .hint { text-align: center; font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+    .voice-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+    .voice-row select {
+      background: var(--panel); color: var(--text);
+      border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px; font: inherit; outline: none;
+    }
+    .mic-btn {
+      background: var(--panel); color: var(--text); font-weight: 700;
+      border: 1px solid var(--line); border-radius: 12px; padding: 11px 16px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .mic-btn:hover { border-color: var(--accent-dim); }
+    .mic-btn.live { background: rgba(255,90,90,.12); border-color: #ff5a5a; color: #ff9a9a; }
+    .mic-dot { width: 9px; height: 9px; border-radius: 50%; background: #ff5a5a; display: none; }
+    .mic-btn.live .mic-dot { display: inline-block; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{ opacity:1 } 50%{ opacity:.3 } }
+    #voiceStatus { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="logo">K</div>
+      <div>
+        <h1>Kapruka Fashion Stylist</h1>
+        <p> Outfits, styling &amp; shopping — fashion from Kapruka 🇱🇰</p>
+      </div>
+      <div class="status-dot" title="connected"></div>
+    </header>
+
+    <div id="log"></div>
+
+    <footer>
+      <div class="voice-row">
+        <select id="lang" title="Voice language">
+          <option value="en">🇬🇧 English (live)</option>
+          <option value="ta">🇮🇳 Tamil (live)</option>
+          <option value="si">🇱🇰 Sinhala (push-to-talk)</option>
+        </select>
+        <button id="micBtn" class="mic-btn" type="button" title="Talk to the assistant">
+          <span class="mic-dot"></span><span id="micLabel">🎤 Talk</span>
+        </button>
+        <span id="voiceStatus"></span>
+      </div>
+      <form id="form">
+        <img id="photoThumb" alt="Your photo" title="Your try-on photo" />
+        <button id="photoBtn" class="photo-btn" type="button" title="Upload your photo for virtual try-on">📷</button>
+        <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" hidden />
+        <textarea id="input" rows="1" placeholder="Find me a saree for a wedding under 15,000…" autocomplete="off"></textarea>
+        <button id="send" type="submit">Send</button>
+      </form>
+      <div class="hint">Session: <span id="sid"></span> · 📷 upload a photo, then “Try on” any product</div>
+    </footer>
+  </div>
+
+  <script>
+    const log = document.getElementById("log");
+    const form = document.getElementById("form");
+    const input = document.getElementById("input");
+    const sendBtn = document.getElementById("send");
+
+    // Persistent session id so the backend can keep conversation state.
+    const sessionId = localStorage.getItem("kapruka_sid") ||
+      ("web-" + Math.random().toString(36).slice(2, 10));
+    localStorage.setItem("kapruka_sid", sessionId);
+    document.getElementById("sid").textContent = sessionId;
+
+    function el(tag, cls, html) {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (html != null) e.innerHTML = html;
+      return e;
+    }
+
+    function addMessage(role, text) {
+      const wrap = el("div", "msg " + role);
+      wrap.appendChild(el("div", "avatar", role === "user" ? "You" : "K"));
+      const bubble = el("div", "bubble");
+      bubble.textContent = text;
+      wrap.appendChild(bubble);
+      log.appendChild(wrap);
+      log.scrollTop = log.scrollHeight;
+      return bubble; // so we can stream into it
+    }
+
+    function addStatus(text, icon) {
+      const wrap = el("div", "meta");
+      const chip = el("span", "tool-chip");
+      chip.textContent = (icon || "🔎") + " " + text;
+      wrap.appendChild(chip);
+      log.appendChild(wrap);
+      log.scrollTop = log.scrollHeight;
+      return wrap;
+    }
+
+    // Consecutive product cards are collected into one responsive grid.
+    // Stylist results carry a `group` (outfit slot) — when it changes we close
+    // the grid, print a slot label and start a new grid for that slot.
+    let currentGrid = null, currentGroup = null;
+    function addProduct(item) {
+      const group = item.group || null;
+      if (!currentGrid || group !== currentGroup) {
+        if (group) {
+          const label = el("div", "outfit-label");
+          label.textContent = "👗 " + group;
+          log.appendChild(label);
+        }
+        currentGrid = el("div", "product-grid");
+        log.appendChild(currentGrid);
+        currentGroup = group;
+      }
+      const card = el("div", "card");
+      const fmtPrice = (item.price != null)
+        ? new Intl.NumberFormat("en-LK").format(item.price) + " " + (item.currency || "LKR")
+        : "—";
+      const stock = item.in_stock
+        ? `<span class="badge in">In stock${item.stock_level ? " · " + item.stock_level : ""}</span>`
+        : `<span class="badge out">Out of stock</span>`;
+      card.innerHTML = `
+        <div class="thumb">${item.image_url ? `<img src="${item.image_url}" alt="" loading="lazy">` : ""}</div>
+        <div class="card-body">
+          <div class="card-name">${item.name || "Product"}</div>
+          <div class="card-price">${fmtPrice}</div>
+          <div class="card-stock">${stock}</div>
+          ${item.url ? `<a class="card-link" href="${item.url}" target="_blank" rel="noopener">View on Kapruka ↗</a>` : ""}
+        </div>`;
+      if (item.id) {
+        const tryBtn = el("button", "tryon-btn");
+        tryBtn.type = "button";
+        tryBtn.textContent = "👗 Try on";
+        // Rides the normal chat path; the root agent routes "Try on product …"
+        // messages to the fitting room agent.
+        tryBtn.addEventListener("click", () => {
+          input.value = `Try on product ${item.id} (${item.name || ""})`;
+          form.requestSubmit();
+        });
+        card.querySelector(".card-body").appendChild(tryBtn);
+      }
+      currentGrid.appendChild(card);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function addTryonImage(evt) {
+      const wrap = el("div", "msg bot");
+      wrap.appendChild(el("div", "avatar", "K"));
+      const bubble = el("div", "bubble tryon-bubble");
+      const link = document.createElement("a");
+      link.href = evt.url; link.target = "_blank"; link.rel = "noopener";
+      const img = document.createElement("img");
+      img.src = evt.url; img.alt = "Virtual try-on";
+      link.appendChild(img);
+      bubble.appendChild(link);
+      const cap = el("div", "tryon-cap");
+      cap.textContent = "You, wearing " + (evt.product_name || "this piece");
+      bubble.appendChild(cap);
+      wrap.appendChild(bubble);
+      log.appendChild(wrap);
+      currentGrid = null; currentGroup = null;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    // Placed-order payment link — rendered as a clickable Pay button (the link
+    // lives only in the agent's prose otherwise, which the voice model drops).
+    function addOrder(evt) {
+      const wrap = el("div", "msg bot");
+      wrap.appendChild(el("div", "avatar", "K"));
+      const bubble = el("div", "bubble");
+      const head = el("div");
+      head.style.fontWeight = "600"; head.style.marginBottom = "6px";
+      head.textContent = "✅ Order placed" + (evt.order_ref ? " · " + evt.order_ref : "");
+      bubble.appendChild(head);
+      if (evt.grand_total != null) {
+        const total = el("div");
+        total.style.marginBottom = "8px";
+        total.innerHTML = "Total: <b>" +
+          new Intl.NumberFormat("en-LK").format(evt.grand_total) +
+          " " + (evt.currency || "LKR") + "</b>";
+        bubble.appendChild(total);
+      }
+      if (evt.checkout_url) {
+        const a = document.createElement("a");
+        a.href = evt.checkout_url; a.target = "_blank"; a.rel = "noopener";
+        a.className = "pay-btn"; a.textContent = "💳 Pay now";
+        bubble.appendChild(a);
+      }
+      if (evt.expires_at) bubble.appendChild(el("div", "tryon-cap", "Link expires: " + evt.expires_at));
+      wrap.appendChild(bubble);
+      log.appendChild(wrap);
+      currentGrid = null; currentGroup = null;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    // Photo upload for virtual try-on.
+    const photoBtn = document.getElementById("photoBtn");
+    const photoInput = document.getElementById("photoInput");
+    const photoThumb = document.getElementById("photoThumb");
+    photoBtn.addEventListener("click", () => photoInput.click());
+    photoInput.addEventListener("change", async () => {
+      const file = photoInput.files[0];
+      if (!file) return;
+      const fd = new FormData();
+      fd.append("session_id", sessionId);
+      fd.append("photo", file);
+      try {
+        const res = await fetch("/upload_photo", { method: "POST", body: fd });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok || out.status !== "ok") throw new Error(out.message || "HTTP " + res.status);
+        photoThumb.src = URL.createObjectURL(file);
+        photoThumb.style.display = "block";
+        addStatus("Photo saved — tap “Try on” on any product to see it on you!", "📷");
+      } catch (err) {
+        addStatus("Photo upload failed: " + err.message, "⚠️");
+      } finally {
+        photoInput.value = "";
+      }
+    });
+
+    // Auto-grow textarea
+    input.addEventListener("input", () => {
+      input.style.height = "auto";
+      input.style.height = Math.min(input.scrollHeight, 140) + "px";
+    });
+    // Enter to send, Shift+Enter for newline
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+    });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const message = input.value.trim();
+      if (!message) return;
+
+      addMessage("user", message);
+      input.value = ""; input.style.height = "auto";
+      sendBtn.disabled = true;
+      currentGrid = null; currentGroup = null; // fresh grid/groups for this turn
+
+      // Placeholder bot bubble with a typing indicator until first token.
+      const botBubble = addMessage("bot", "");
+      botBubble.innerHTML = '<span class="typing"><span></span><span></span><span></span></span>';
+      let started = false;
+
+      try {
+        const res = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, session_id: sessionId }),
+        });
+        if (!res.ok || !res.body) throw new Error("HTTP " + res.status);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          // SSE frames are separated by a blank line; each "data:" line is a chunk.
+          const frames = buffer.split("\n\n");
+          buffer = frames.pop(); // keep incomplete frame for next read
+
+          for (const frame of frames) {
+            const line = frame.split("\n").find(l => l.startsWith("data:"));
+            if (!line) continue;
+            let evt;
+            try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+
+            if (evt.type === "tool") {
+              if (evt.name === "try_on") {
+                addStatus("Creating your try-on look… (can take ~20s)", "👗");
+              } else {
+                addStatus("Using " + evt.name + "…");
+              }
+            } else if (evt.type === "product") {
+              addProduct(evt.item);
+            } else if (evt.type === "tryon_image") {
+              addTryonImage(evt);
+            } else if (evt.type === "order") {
+              addOrder(evt);
+            } else if (evt.type === "text") {
+              if (!started) { botBubble.textContent = ""; started = true; }
+              botBubble.textContent += evt.content;
+              log.scrollTop = log.scrollHeight;
+            } else if (evt.type === "error") {
+              if (!started) { botBubble.textContent = ""; started = true; }
+              botBubble.textContent += "⚠️ " + evt.content;
+            }
+          }
+        }
+        if (!started) botBubble.textContent = "(no response)";
+      } catch (err) {
+        botBubble.textContent = "⚠️ " + err.message;
+      } finally {
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    });
+
+    // ---------------------------------------------------------------------
+    // Voice
+    // ---------------------------------------------------------------------
+    const langSel = document.getElementById("lang");
+    const micBtn = document.getElementById("micBtn");
+    const micLabel = document.getElementById("micLabel");
+    const voiceStatus = document.getElementById("voiceStatus");
+
+    const TARGET_RATE = 16000; // what we send to the backend / Azure
+
+    // Float32 (any rate) → Int16 PCM at TARGET_RATE. Averages each output sample
+    // over its source window (a simple anti-aliasing low-pass) — naive
+    // nearest-sample decimation aliases and garbles speech enough that the
+    // model's VAD/ASR won't recognise it.
+    function downsampleToPCM16(float32, inRate) {
+      const ratio = inRate / TARGET_RATE;
+      const outLen = Math.floor(float32.length / ratio);
+      const out = new Int16Array(outLen);
+      for (let i = 0; i < outLen; i++) {
+        const start = Math.floor(i * ratio);
+        const end = Math.min(float32.length, Math.floor((i + 1) * ratio));
+        let sum = 0, n = 0;
+        for (let j = start; j < end; j++) { sum += float32[j]; n++; }
+        let s = n ? sum / n : (float32[start] || 0);
+        s = Math.max(-1, Math.min(1, s));
+        out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      return out;
+    }
+
+    // Wrap Int16 PCM in a minimal WAV container (for the Sinhala upload).
+    function pcm16ToWav(int16, rate) {
+      const buf = new ArrayBuffer(44 + int16.length * 2);
+      const dv = new DataView(buf);
+      const ws = (off, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(off + i, s.charCodeAt(i)); };
+      ws(0, "RIFF"); dv.setUint32(4, 36 + int16.length * 2, true); ws(8, "WAVE");
+      ws(12, "fmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true);
+      dv.setUint16(22, 1, true); dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true);
+      dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+      ws(36, "data"); dv.setUint32(40, int16.length * 2, true);
+      for (let i = 0; i < int16.length; i++) dv.setInt16(44 + i * 2, int16[i], true);
+      return new Blob([buf], { type: "audio/wav" });
+    }
+
+    const voice = { active: false, mode: null, ws: null, micCtx: null,
+                    stream: null, node: null, chunks: [],
+                    outCtx: null, nextStart: 0, sources: [] };
+
+    async function openMic() {
+      voice.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voice.micCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = voice.micCtx.createMediaStreamSource(voice.stream);
+      voice.node = voice.micCtx.createScriptProcessor(4096, 1, 1);
+      src.connect(voice.node);
+      voice.node.connect(voice.micCtx.destination);
+      return src;
+    }
+
+    function closeMic() {
+      try { voice.node && voice.node.disconnect(); } catch {}
+      try { voice.micCtx && voice.micCtx.close(); } catch {}
+      try { voice.stream && voice.stream.getTracks().forEach(t => t.stop()); } catch {}
+      voice.node = voice.micCtx = voice.stream = null;
+    }
+
+    // Schedule a 24 kHz PCM16 audio chunk from the live assistant.
+    function playPCM24(int16) {
+      if (!voice.outCtx) voice.outCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const f32 = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) f32[i] = int16[i] / 0x8000;
+      const buf = voice.outCtx.createBuffer(1, f32.length, 24000);
+      buf.getChannelData(0).set(f32);
+      const node = voice.outCtx.createBufferSource();
+      node.buffer = buf; node.connect(voice.outCtx.destination);
+      const now = voice.outCtx.currentTime;
+      if (voice.nextStart < now) voice.nextStart = now;
+      node.start(voice.nextStart);
+      voice.nextStart += buf.duration;
+      voice.sources.push(node);
+      node.onended = () => { voice.sources = voice.sources.filter(s => s !== node); };
+    }
+
+    function stopPlayback() { // barge-in: drop queued assistant audio
+      voice.sources.forEach(s => { try { s.stop(); } catch {} });
+      voice.sources = [];
+      voice.nextStart = 0;
+    }
+
+    function setMicUI(on, label) {
+      voice.active = on;
+      micBtn.classList.toggle("live", on);
+      micLabel.textContent = label || (on ? "■ Stop" : "🎤 Talk");
+    }
+
+    // --- Realtime path (English / Tamil) via /live WebSocket ---------------
+    let liveBot = null; // current assistant caption bubble for this turn
+    async function startLive(lang) {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      voice.ws = new WebSocket(`${proto}://${location.host}/live?session_id=${encodeURIComponent(sessionId)}&lang=${lang}`);
+      voice.ws.binaryType = "arraybuffer";
+      voice.mode = "live";
+
+      voice.ws.onmessage = (ev) => {
+        if (typeof ev.data !== "string") { playPCM24(new Int16Array(ev.data)); return; }
+        let evt; try { evt = JSON.parse(ev.data); } catch { return; }
+        if (evt.type === "product") addProduct(evt.item);
+        else if (evt.type === "tryon_image") addTryonImage(evt);
+        else if (evt.type === "order") addOrder(evt);
+        else if (evt.type === "tool") addStatus(evt.name === "fitting_room_agent" ? "Creating your try-on look…" : "Using " + evt.name + "…", evt.name === "fitting_room_agent" ? "👗" : "🔎");
+        else if (evt.type === "user_text") { addMessage("user", evt.content); currentGrid = null; currentGroup = null; }
+        else if (evt.type === "text") {
+          if (!liveBot) liveBot = addMessage("bot", "");
+          liveBot.textContent += evt.content; log.scrollTop = log.scrollHeight;
+        } else if (evt.type === "turn_complete") { liveBot = null; }
+        else if (evt.type === "interrupted") { stopPlayback(); liveBot = null; }
+        else if (evt.type === "go_away") { voiceStatus.textContent = "Reconnecting…"; restartLive(lang); }
+        else if (evt.type === "error") { addStatus(evt.content, "⚠️"); }
+      };
+      voice.ws.onclose = () => { if (voice.active && voice.mode === "live") setMicUI(false); };
+
+      await new Promise((res, rej) => { voice.ws.onopen = res; voice.ws.onerror = rej; });
+      await openMic();
+      voice.node.onaudioprocess = (e) => {
+        if (!voice.ws || voice.ws.readyState !== 1) return;
+        const pcm = downsampleToPCM16(e.inputBuffer.getChannelData(0), voice.micCtx.sampleRate);
+        voice.ws.send(pcm.buffer);
+      };
+      voiceStatus.textContent = "Listening… speak now";
+    }
+
+    function stopLive() {
+      try { voice.ws && voice.ws.close(); } catch {}
+      voice.ws = null; closeMic(); stopPlayback(); liveBot = null;
+      voiceStatus.textContent = "";
+    }
+
+    async function restartLive(lang) { // reconnect on the Live session time-cap
+      try { voice.ws && voice.ws.close(); } catch {}
+      voice.ws = null;
+      await startLive(lang);
+    }
+
+    // --- Sinhala path (push-to-talk) → /voice_sinhala ---------------------
+    async function startSinhalaRecording() {
+      voice.mode = "sinhala"; voice.chunks = [];
+      await openMic();
+      voice.node.onaudioprocess = (e) => {
+        voice.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      };
+      voiceStatus.textContent = "Recording… tap stop when done";
+    }
+
+    async function stopSinhalaRecording() {
+      const rate = voice.micCtx ? voice.micCtx.sampleRate : 48000;
+      closeMic();
+      const total = voice.chunks.reduce((n, c) => n + c.length, 0);
+      const merged = new Float32Array(total);
+      let o = 0; for (const c of voice.chunks) { merged.set(c, o); o += c.length; }
+      voice.chunks = [];
+      if (total === 0) { voiceStatus.textContent = ""; return; }
+
+      voiceStatus.textContent = "Transcribing…";
+      const wav = pcm16ToWav(downsampleToPCM16(merged, rate), TARGET_RATE);
+      const fd = new FormData();
+      fd.append("session_id", sessionId);
+      fd.append("audio", wav, "speech.wav");
+      try {
+        const res = await fetch("/voice_sinhala", { method: "POST", body: fd });
+        const out = await res.json();
+        if (out.status === "no_speech") { voiceStatus.textContent = ""; addStatus(out.message, "🎤"); return; }
+        if (out.status !== "ok") throw new Error(out.message || "voice failed");
+        if (out.transcript) { addMessage("user", out.transcript); currentGrid = null; currentGroup = null; }
+        (out.products || []).forEach(addProduct);
+        (out.tryon_images || []).forEach(addTryonImage);
+        (out.orders || []).forEach(addOrder);
+        if (out.reply_text) addMessage("bot", out.reply_text);
+        if (out.audio_mp3_base64) new Audio("data:audio/mp3;base64," + out.audio_mp3_base64).play().catch(() => {});
+      } catch (err) {
+        addStatus("Sinhala voice failed: " + err.message, "⚠️");
+      } finally {
+        voiceStatus.textContent = "";
+      }
+    }
+
+    // --- Mic button: one toggle for all modes -----------------------------
+    micBtn.addEventListener("click", async () => {
+      const lang = langSel.value;
+      try {
+        if (!voice.active) {
+          setMicUI(true);
+          if (lang === "si") await startSinhalaRecording();
+          else await startLive(lang);
+        } else {
+          if (voice.mode === "sinhala") { setMicUI(false, "🎤 Talk"); await stopSinhalaRecording(); }
+          else { setMicUI(false); stopLive(); }
+        }
+      } catch (err) {
+        setMicUI(false); voiceStatus.textContent = "";
+        addStatus("Mic error: " + (err.message || err), "⚠️");
+      }
+    });
+
+    // Switching language ends any active session cleanly.
+    langSel.addEventListener("change", () => {
+      if (voice.active) {
+        if (voice.mode === "live") stopLive();
+        setMicUI(false, "🎤 Talk");
+      }
+    });
+
+    addMessage("bot", "Ayubowan! 👋 I'm your Kapruka fashion stylist. Type, or pick a language and tap 🎤 to talk. What are we dressing you for today?");
+    input.focus();
+  </script>
+</body>
+</html>
