@@ -11,7 +11,7 @@ import re
 
 from google.genai import types
 
-from tools.sinks import product_sink, search_counter
+from tools.sinks import product_sink, search_counter, tracking_sink
 
 _PRODUCT_TOOLS = {"kapruka_search_products", "kapruka_get_product"}
 
@@ -356,3 +356,83 @@ def stylist_before_model(callback_context, llm_request):
             content.parts.append(types.Part.from_text(text=reminder))
             break
     return None  # proceed with the (mutated) request
+
+
+# --- Order tracking (post-sale) ----------------------------------------------
+#
+# kapruka_track_order is a read-only lookup by order number. The agent narrates
+# the status in prose, but the rich timeline (progress steps, recipient, amount)
+# is awkward to read aloud and the voice model garbles it — so we capture the
+# structured response here and surface it as a `tracking` card, exactly like the
+# product/order capture pipelines above.
+
+TRACK_ORDER_TOOL = "kapruka_track_order"
+
+# Recipient strings carry stray HTML artifacts (e.g. phone "077-3517248<BR").
+_HTML_FRAGMENT_RE = re.compile(r"<[^>]*>?")
+
+
+def _clean(value) -> str:
+    """Strip HTML fragments/tags and surrounding whitespace from a tracking field."""
+    return _HTML_FRAGMENT_RE.sub("", str(value or "")).strip()
+
+
+def before_tracking_tool(*, tool, args, tool_context):
+    """Re-nest flat args under `params` (Gemini sometimes flattens them) and force
+    JSON so the after-callback can parse the structured tracking response."""
+    if getattr(tool, "name", None) == TRACK_ORDER_TOOL:
+        params = _fold_flat_args(args)
+        params["response_format"] = "json"
+    return None  # proceed with the (mutated) args
+
+
+def _tracking_card(data: dict) -> dict:
+    """Trim a raw kapruka_track_order response to the fields the frontend renders."""
+    amount = data.get("amount") or {}
+    recipient = data.get("recipient") or {}
+    progress = [
+        {"step": _clean(p.get("step")), "timestamp": _clean(p.get("timestamp"))}
+        for p in (data.get("progress") or [])
+        if isinstance(p, dict) and p.get("step")
+    ]
+    return {
+        "order_number": data.get("order_number"),
+        "status": data.get("status"),
+        "status_display": data.get("status_display") or data.get("status"),
+        "delivery_date": _clean(data.get("delivery_date")),
+        "order_date": _clean(data.get("order_date")),
+        "amount": amount.get("value"),
+        "currency": amount.get("currency") or "LKR",
+        "recipient_name": _clean(recipient.get("name")),
+        "recipient_city": _clean(recipient.get("city")),
+        "comments": _clean(data.get("comments")),
+        "progress": progress,
+        "live_tracking_available": bool(data.get("live_tracking_available")),
+        "has_delivery_photo": bool(data.get("has_delivery_photo")),
+        "has_delivery_video": bool(data.get("has_delivery_video")),
+    }
+
+
+def capture_tracking_after_tool(*, tool, args, tool_context, tool_response):
+    """Stash the structured tracking result into the per-request sink, if one is
+    set. Leaves the raw tool response unchanged so the LLM still narrates it."""
+    if getattr(tool, "name", None) != TRACK_ORDER_TOOL:
+        return None
+    data = _json_from_tracking_response(tool_response)
+    # Only emit a card for a real order lookup (has an order number); a not-found
+    # / error payload is left to the agent to phrase in prose.
+    if isinstance(data, dict) and data.get("order_number"):
+        sink = tracking_sink.get()
+        if sink is not None:
+            sink.append(_tracking_card(data))
+    return None
+
+
+def _json_from_tracking_response(tool_response) -> dict | None:
+    """Parse the JSON body out of the track_order MCP response, or None."""
+    try:
+        content = tool_response.get("content") if isinstance(tool_response, dict) else None
+        text = content[0].get("text") if content else None
+        return json.loads(text)
+    except Exception:
+        return None

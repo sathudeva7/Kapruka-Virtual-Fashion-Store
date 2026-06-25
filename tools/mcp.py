@@ -84,3 +84,5 @@ delivery_toolset = _toolset(
     "kapruka_list_delivery_cities",
 )
 order_toolset = _toolset("kapruka_create_order")
+# Post-sale: look up an existing order's status + delivery progress by order number.
+tracking_toolset = _toolset("kapruka_track_order")

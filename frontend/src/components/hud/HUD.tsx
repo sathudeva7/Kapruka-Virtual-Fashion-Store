@@ -3,7 +3,8 @@
 import { useRef, useState, type CSSProperties } from "react";
 import { useStore, type Lang, type ProductItem, type CartState, type CheckoutDetails } from "@/lib/store";
 import { getVoiceClient } from "@/lib/voice";
-import { uploadPhoto, imgUrl, requestTryOn, addToCart, fetchCart, removeFromCart, saveCheckoutDetails, type CartResult } from "@/lib/api";
+import { uploadPhoto, imgUrl, requestTryOn, addToCart, fetchCart, removeFromCart, saveCheckoutDetails, trackOrder, type CartResult } from "@/lib/api";
+import type { TrackingItem } from "@/lib/store";
 import { getSessionId } from "@/lib/session";
 import { TRYON_ROOM } from "@/lib/scene";
 import Joystick from "./Joystick";
@@ -48,6 +49,7 @@ export default function HUD() {
   const error = useStore((s) => s.error);
   const selected = useStore((s) => s.selectedProduct);
   const orders = useStore((s) => s.orders);
+  const tracking = useStore((s) => s.tracking);
   const tryOn = useStore((s) => s.tryOn);
   const enlarge = useStore((s) => s.enlarge);
   const cart = useStore((s) => s.cart);
@@ -72,6 +74,8 @@ export default function HUD() {
   const setCheckoutOpen = useStore((s) => s.setCheckoutOpen);
   const setCheckoutSaved = useStore((s) => s.setCheckoutSaved);
   const setCaptionsHidden = useStore((s) => s.setCaptionsHidden);
+  const addTracking = useStore((s) => s.addTracking);
+  const removeTracking = useStore((s) => s.removeTracking);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const tryOnFileRef = useRef<HTMLInputElement>(null);
@@ -81,6 +85,10 @@ export default function HUD() {
   const [addingToCart, setAddingToCart] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [trackOpen, setTrackOpen] = useState(false);
+  const [trackNum, setTrackNum] = useState("");
+  const [trackBusy, setTrackBusy] = useState(false);
+  const [trackErr, setTrackErr] = useState<string | null>(null);
   const client = getVoiceClient();
 
   const busy = connection === "connecting" || connection === "thinking";
@@ -233,6 +241,27 @@ export default function HUD() {
     }
   }
 
+  async function submitTrack(e: React.FormEvent) {
+    e.preventDefault();
+    const num = trackNum.trim();
+    if (!num || trackBusy) return;
+    setTrackBusy(true);
+    setTrackErr(null);
+    try {
+      const out = await trackOrder(num);
+      if (out.status !== "ok" || !out.item) {
+        throw new Error(out.message || "We couldn't find that order.");
+      }
+      addTracking(out.item as TrackingItem);
+      setTrackNum("");
+      setTrackOpen(false);
+    } catch (err) {
+      setTrackErr((err as Error).message);
+    } finally {
+      setTrackBusy(false);
+    }
+  }
+
   async function onTryOnPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -310,6 +339,14 @@ export default function HUD() {
         >
           📝
           {checkoutSaved && <span style={{ ...cartBadge, background: "#196b3a" }}>✓</span>}
+        </button>
+        <button
+          onClick={() => { setTrackErr(null); setTrackOpen((v) => !v); }}
+          style={{ ...iconBtn, fontSize: 18, opacity: trackOpen ? 1 : 0.85 }}
+          title="Track an order"
+          aria-label="Track an order"
+        >
+          📦
         </button>
         <button
           onClick={() => setCaptionsHidden(!captionsHidden)}
@@ -458,6 +495,132 @@ export default function HUD() {
               {o.expires_at && <div style={{ fontSize: 11, opacity: 0.6, marginTop: 4 }}>Link expires: {o.expires_at}</div>}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* track-an-order input box (typed number — avoids voice mis-hearing) */}
+      {trackOpen && (
+        <div style={{ ...panel({ top: 70, right: 16 }), width: 250 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <div style={{ fontWeight: 700 }}>📦 Track an order</div>
+            <button onClick={() => setTrackOpen(false)} style={iconBtn} aria-label="Close">
+              ✕
+            </button>
+          </div>
+          <form onSubmit={submitTrack}>
+            <input
+              autoFocus
+              value={trackNum}
+              onChange={(e) => { setTrackNum(e.target.value); setTrackErr(null); }}
+              placeholder="Order number, e.g. VPAY827982BA"
+              style={fieldInput}
+            />
+            {trackErr && <div style={{ color: "#a12", fontSize: 12, marginTop: 6 }}>{trackErr}</div>}
+            <button
+              type="submit"
+              disabled={trackBusy || !trackNum.trim()}
+              style={{ ...payBtn, width: "100%", textAlign: "center", marginTop: 8, opacity: trackBusy || !trackNum.trim() ? 0.6 : 1 }}
+            >
+              {trackBusy ? "Checking…" : "Track order"}
+            </button>
+            <div style={{ fontSize: 11, opacity: 0.6, marginTop: 6 }}>
+              The number from your order confirmation email.
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* order tracking -> status + delivery timeline */}
+      {tracking.length > 0 && (
+        <div style={{ ...panel({ bottom: 150, right: 16 }), maxWidth: 300, maxHeight: "52vh", overflowY: "auto" }}>
+          {tracking.map((t, i) => {
+            const done = ["delivered", "shipped", "out for delivery"].includes(
+              String(t.status || "").toLowerCase()
+            );
+            const amt = t.amount == null || t.amount === "" ? null : Number(t.amount);
+            const steps = t.progress ?? [];
+            return (
+              <div key={i} style={{ marginBottom: i < tracking.length - 1 ? 14 : 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
+                  <span>📦 {t.order_number || "Order"}</span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: "2px 8px",
+                      borderRadius: 999,
+                      color: done ? "#1b6b3a" : "#9a6a12",
+                      background: done ? "#e7f3ec" : "#fbf2dd",
+                    }}
+                  >
+                    {t.status_display || t.status || "Unknown"}
+                  </span>
+                  <button
+                    onClick={() => removeTracking(t.order_number)}
+                    style={{ ...iconBtn, marginLeft: "auto", fontSize: 14, opacity: 0.6 }}
+                    title="Dismiss"
+                    aria-label="Dismiss tracking card"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {(amt != null || t.delivery_date) && (
+                  <div style={{ fontSize: 13, margin: "5px 0" }}>
+                    {amt != null && Number.isFinite(amt) && (
+                      <>
+                        Total: <b>{fmtPrice(amt, t.currency)}</b>
+                      </>
+                    )}
+                    {amt != null && t.delivery_date ? " · " : ""}
+                    {t.delivery_date && (
+                      <>
+                        Delivery: <b>{t.delivery_date}</b>
+                      </>
+                    )}
+                  </div>
+                )}
+                {t.recipient_name && (
+                  <div style={{ fontSize: 12, opacity: 0.65 }}>
+                    To: {t.recipient_name}
+                    {t.recipient_city ? " · " + t.recipient_city : ""}
+                  </div>
+                )}
+                {steps.length > 0 && (
+                  <div style={{ marginTop: 8, borderLeft: "2px solid #cfe6d8", paddingLeft: 12 }}>
+                    {steps.map((p, j) => {
+                      const last = j === steps.length - 1;
+                      return (
+                        <div key={j} style={{ position: "relative", padding: "3px 0" }}>
+                          <span
+                            style={{
+                              position: "absolute",
+                              left: -17,
+                              top: 7,
+                              width: 7,
+                              height: 7,
+                              borderRadius: "50%",
+                              background: last ? "#196b3a" : "#b9c8bf",
+                              border: "2px solid #fff",
+                            }}
+                          />
+                          <div
+                            style={{
+                              fontSize: 12.5,
+                              fontWeight: last ? 700 : 400,
+                              color: last ? "#196b3a" : "#333",
+                            }}
+                          >
+                            {p.step}
+                          </div>
+                          {p.timestamp && <div style={{ fontSize: 10.5, opacity: 0.55 }}>{p.timestamp}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

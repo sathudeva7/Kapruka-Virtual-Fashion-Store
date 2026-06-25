@@ -7,6 +7,7 @@ from catalog.agent import catalog_agent
 from checkout.agent import checkout_agent
 from fittingroom.agent import fitting_room_agent
 from stylist.agent import stylist_agent
+from tracking.agent import tracking_agent
 
 ecommerce_agent = Agent(
     name="ecommerce_agent",
@@ -28,6 +29,10 @@ ecommerce_agent = Agent(
         look on me", or any message like "Try on product <id>".
       - checkout_agent - To place an order for the items in the cart. (It collects the
         buyer's name and mobile number when needed.)
+      - tracking_agent - To track or check the status of an EXISTING order: "where is
+        my order", "track my order", "order status", or any message containing an order
+        number from a confirmation (e.g. VPAY827982BA). This is the post-sale step, not
+        placing a new order.
 
     Rules:
       1. NEVER answer a product/checkout question yourself — always delegate to exactly one
@@ -40,7 +45,8 @@ ecommerce_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         thinking_config=types.ThinkingConfig(thinking_budget=0),
     ),
-    sub_agents=[catalog_agent, stylist_agent, fitting_room_agent, checkout_agent]
+    sub_agents=[catalog_agent, stylist_agent, fitting_room_agent, checkout_agent,
+                tracking_agent]
 )
 
 # The name `adk web` (and main.py) look for.

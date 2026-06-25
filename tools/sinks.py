@@ -42,6 +42,14 @@ order_sink: "contextvars.ContextVar[list | None]" = contextvars.ContextVar(
     "order_sink", default=None
 )
 
+# Order-tracking lookups, mirroring product_sink: the tracking agent's after-tool
+# callback appends one shaped dict per kapruka_track_order call (order_number,
+# status, delivery_date, amount, a progress[] timeline, …); main.py drains them
+# into `tracking` SSE frames the UI renders as a status + timeline card.
+tracking_sink: "contextvars.ContextVar[list | None]" = contextvars.ContextVar(
+    "tracking_sink", default=None
+)
+
 # The live session's LiveRequestQueue (set only on the /live Gemini path). It lets
 # a slow background job — confirming an order with Kapruka's MCP, which is too slow
 # to await inside a live tool call without the session aborting (1008) — speak a

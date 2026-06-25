@@ -60,6 +60,29 @@ export interface TryonItem {
   product_name?: string;
 }
 
+export interface TrackingStep {
+  step: string;
+  timestamp?: string;
+}
+
+// Mirrors the backend tracking card (tools/callbacks.py `_tracking_card`).
+export interface TrackingItem {
+  order_number?: string;
+  status?: string;
+  status_display?: string;
+  delivery_date?: string;
+  order_date?: string;
+  amount?: string | number;
+  currency?: string;
+  recipient_name?: string;
+  recipient_city?: string;
+  comments?: string;
+  progress?: TrackingStep[];
+  live_tracking_available?: boolean;
+  has_delivery_photo?: boolean;
+  has_delivery_video?: boolean;
+}
+
 export type TryOnStatus = "idle" | "generating" | "ready" | "error";
 
 export interface TryOnState {
@@ -98,6 +121,7 @@ interface StoreState {
   freshBatch: boolean;
   selectedProduct: ProductItem | null;
   orders: OrderItem[];
+  tracking: TrackingItem[];
   tryonImages: TryonItem[];
 
   // shopping cart
@@ -138,6 +162,8 @@ interface StoreState {
   seedFeatured: () => void;
   addProduct: (item: ProductItem) => void;
   addOrder: (o: OrderItem) => void;
+  addTracking: (t: TrackingItem) => void;
+  removeTracking: (orderNumber?: string) => void;
   addTryon: (t: TryonItem) => void;
   setCart: (c: CartState) => void;
   setCartOpen: (open: boolean) => void;
@@ -177,6 +203,7 @@ export const useStore = create<StoreState>((set, get) => ({
   freshBatch: false,
   selectedProduct: null,
   orders: [],
+  tracking: [],
   tryonImages: [],
 
   cart: { items: [], count: 0, total: 0, currency: "LKR" },
@@ -253,6 +280,21 @@ export const useStore = create<StoreState>((set, get) => ({
       };
     }),
   addOrder: (o) => set((st) => ({ orders: [...st.orders, o] })),
+  // De-dupe by order number so a re-track of the same order replaces (not stacks)
+  // its card with the latest status.
+  addTracking: (t) =>
+    set((st) => {
+      const rest = t.order_number
+        ? st.tracking.filter((x) => x.order_number !== t.order_number)
+        : st.tracking;
+      return { tracking: [...rest, t] };
+    }),
+  removeTracking: (orderNumber) =>
+    set((st) => ({
+      tracking: orderNumber
+        ? st.tracking.filter((t) => t.order_number !== orderNumber)
+        : [],
+    })),
   addTryon: (t) => set((st) => ({ tryonImages: [...st.tryonImages, t] })),
   setCart: (c) => set({ cart: c }),
   setCartOpen: (open) => set({ cartOpen: open }),

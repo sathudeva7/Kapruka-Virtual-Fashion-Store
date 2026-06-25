@@ -60,3 +60,39 @@ async def create_order_via_mcp(params: dict) -> dict:
         return json.loads(text)
     except (ValueError, TypeError):
         return {"status": "error", "message": "Unexpected response from Kapruka."}
+
+
+async def track_order_via_mcp(order_number: str) -> dict:
+    """Call kapruka_track_order once over MCP and return the parsed JSON body.
+
+    Read-only lookup by order number — used by the 3D UI's "Track an order" box
+    (no LLM) so the EXACT number the shopper typed is sent, instead of relying on
+    the voice model to hear/route it. Returns the decoded tracking dict (with
+    order_number / status / progress on success) or {"status": "error", ...}.
+    """
+    order_number = (order_number or "").strip()
+    if not order_number:
+        return {"status": "error", "message": "Please enter an order number."}
+    try:
+        async with streamablehttp_client(KAPRUKA_MCP_URL, timeout=_TIMEOUT) as (
+            read,
+            write,
+            _,
+        ):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(
+                    "kapruka_track_order",
+                    arguments={"params": {"order_number": order_number,
+                                          "response_format": "json"}},
+                )
+    except Exception as exc:  # transport / timeout / connection reset
+        return {"status": "error", "message": f"Could not reach Kapruka ({exc})."}
+
+    text = _text_from_result(result)
+    if not text:
+        return {"status": "error", "message": "Empty response from Kapruka."}
+    try:
+        return json.loads(text)
+    except (ValueError, TypeError):
+        return {"status": "error", "message": "Unexpected response from Kapruka."}

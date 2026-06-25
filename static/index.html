@@ -115,6 +115,19 @@
       color: #05130b; font-weight: 700; padding: 10px 18px; border-radius: 10px;
     }
     .pay-btn:hover { filter: brightness(1.08); }
+    /* Order-tracking card */
+    .track-head { font-weight: 600; margin-bottom: 6px; }
+    .track-meta { margin-bottom: 6px; }
+    .track-timeline { margin-top: 10px; border-left: 2px solid rgba(43,191,106,.25); padding-left: 14px; }
+    .track-step { position: relative; padding: 4px 0; }
+    .track-dot {
+      position: absolute; left: -19px; top: 8px; width: 8px; height: 8px;
+      border-radius: 50%; background: var(--muted); border: 2px solid var(--panel);
+    }
+    .track-step.last .track-dot { background: var(--accent); }
+    .track-step.last .track-step-name { color: var(--accent); font-weight: 600; }
+    .track-step-name { font-size: 13px; }
+    .track-step-time { font-size: 11px; color: var(--muted); }
     .photo-btn {
       background: var(--panel); color: var(--text); font-size: 17px;
       border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px;
@@ -333,6 +346,63 @@
       log.scrollTop = log.scrollHeight;
     }
 
+    // Order-tracking status + delivery timeline (post-sale "where is my order?").
+    const DELIVERED_STATES = ["delivered", "shipped", "out for delivery"];
+    function addTracking(evt) {
+      const wrap = el("div", "msg bot");
+      wrap.appendChild(el("div", "avatar", "K"));
+      const bubble = el("div", "bubble");
+
+      const head = el("div", "track-head");
+      head.textContent = "📦 " + (evt.order_number || "Order");
+      const done = DELIVERED_STATES.includes(String(evt.status || "").toLowerCase());
+      const badge = el("span", "badge " + (done ? "in" : "out"));
+      badge.style.marginLeft = "8px";
+      badge.textContent = evt.status_display || evt.status || "Unknown";
+      head.appendChild(badge);
+      bubble.appendChild(head);
+
+      const bits = [];
+      if (evt.amount != null && evt.amount !== "") {
+        const n = Number(evt.amount);
+        const amt = Number.isFinite(n) ? new Intl.NumberFormat("en-LK").format(n) : evt.amount;
+        bits.push("Total: <b>" + amt + " " + (evt.currency || "LKR") + "</b>");
+      }
+      if (evt.delivery_date) bits.push("Delivery: <b>" + evt.delivery_date + "</b>");
+      if (bits.length) {
+        const meta = el("div", "track-meta");
+        meta.innerHTML = bits.join(" · ");
+        bubble.appendChild(meta);
+      }
+      if (evt.recipient_name) {
+        bubble.appendChild(el("div", "tryon-cap",
+          "To: " + evt.recipient_name + (evt.recipient_city ? " · " + evt.recipient_city : "")));
+      }
+
+      // Vertical progress timeline (latest step last). Highlight the final dot.
+      const steps = Array.isArray(evt.progress) ? evt.progress : [];
+      if (steps.length) {
+        const tl = el("div", "track-timeline");
+        steps.forEach((p, i) => {
+          const row = el("div", "track-step" + (i === steps.length - 1 ? " last" : ""));
+          row.appendChild(el("span", "track-dot"));
+          const body = el("div", "track-step-body");
+          body.appendChild(el("div", "track-step-name", p.step || ""));
+          if (p.timestamp) body.appendChild(el("div", "track-step-time", p.timestamp));
+          row.appendChild(body);
+          tl.appendChild(row);
+        });
+        bubble.appendChild(tl);
+      } else if (evt.comments) {
+        bubble.appendChild(el("div", "tryon-cap", evt.comments));
+      }
+
+      wrap.appendChild(bubble);
+      log.appendChild(wrap);
+      currentGrid = null; currentGroup = null;
+      log.scrollTop = log.scrollHeight;
+    }
+
     // Photo upload for virtual try-on.
     const photoBtn = document.getElementById("photoBtn");
     const photoInput = document.getElementById("photoInput");
@@ -422,6 +492,8 @@
               addTryonImage(evt);
             } else if (evt.type === "order") {
               addOrder(evt);
+            } else if (evt.type === "tracking") {
+              addTracking(evt);
             } else if (evt.type === "text") {
               if (!started) { botBubble.textContent = ""; started = true; }
               botBubble.textContent += evt.content;

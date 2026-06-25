@@ -41,6 +41,7 @@ export interface SinhalaResult {
   products?: unknown[];
   tryon_images?: unknown[];
   orders?: unknown[];
+  tracking?: unknown[];
 }
 
 export interface TryOnResult {
@@ -123,6 +124,19 @@ export async function removeFromCart(sessionId: string, productId: string): Prom
 // which share the bridge runner's session). Used to refresh the trolley widget.
 export async function fetchCart(sessionId: string): Promise<CartResult> {
   const res = await fetch(`/cart?session_id=${encodeURIComponent(sessionId)}`);
+  return res.json();
+}
+
+// Direct order tracking (no LLM): sends the EXACT order number the shopper typed,
+// so a mis-heard voice number can't break the lookup. Returns the tracking card.
+export async function trackOrder(
+  orderNumber: string
+): Promise<{ status: string; item?: unknown; message?: string }> {
+  const res = await fetch("/track_order", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ order_number: orderNumber }),
+  });
   return res.json();
 }
 

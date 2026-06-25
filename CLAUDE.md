@@ -28,11 +28,12 @@ One package per agent plus a shared `tools/` package (mirrors the demo's `adk_ba
 - `stylist/agent.py` — `stylist_agent`: composes one coordinated outfit (3–4 slots: garment / shoes / bag / accessory) with a budget split, one search per slot. **Instruction is deliberately compact and persona-free** (content filter).
 - `fittingroom/agent.py` — `fitting_room_agent`: drives the `try_on` tool and handles its status codes. Also compact/persona-free.
 - `checkout/agent.py` — `checkout_agent` (collects buyer + delivery details, places the order — the order args are assembled **entirely from session state** by `before_checkout_tool`, never by the LLM, with an idempotency fingerprint against duplicate orders) and `logistics_agent` (delivery feasibility).
+- `tracking/agent.py` — `tracking_agent`: the post-sale "where is my order?" step. Looks up an existing order by its **order number** (from the confirmation email — NOT the `order_ref` that `kapruka_create_order` returns) via `kapruka_track_order`, and narrates status + delivery progress. Compact/persona-free (content filter). Demo/test order number: `VPAY827982BA`.
 
 `kapruka_concierge/agent.py` is the `adk web` wrapper (sys.path + dotenv bootstrap, re-exports the root agent). `adk web` also lists the other packages because they contain an `agent.py`; that's harmless — `kapruka_concierge` is the canonical entry.
 
 **Shared `tools/` package** (public names re-exported in `tools/__init__.py`):
-- `mcp.py` — `_toolset(*names)` builds an `McpToolset` over the remote streamable-HTTP endpoint, filtered to named tools (30s timeout — the free public tier is slow/rate-limited). Purpose-built subsets: `search_toolset`, `delivery_toolset`, `order_toolset`.
+- `mcp.py` — `_toolset(*names)` builds an `McpToolset` over the remote streamable-HTTP endpoint, filtered to named tools (30s timeout — the free public tier is slow/rate-limited). Purpose-built subsets: `search_toolset`, `delivery_toolset`, `order_toolset`, `tracking_toolset` (`kapruka_track_order`).
 - `callbacks.py` — before/after tool callbacks (see capture pipeline below).
 - `sinks.py` — per-request contextvars: `product_sink`, `image_sink`, `search_counter`, `current_session_id`. `main.py` sets all four at the start of each `/chat` request; contextvars carry them through the agent nesting into tool callbacks. **Only mutate the held objects in place (append/increment) — a `.set()` inside a tool won't propagate across context copies.**
 - `cart.py` — `manage_cart`: cart is `state["cart"]`, always **copy → modify → reassign** so ADK records the delta; totals are computed, never stored.
@@ -43,6 +44,7 @@ One package per agent plus a shared `tools/` package (mirrors the demo's `adk_ba
 - `capture_products_after_tool` parses products out of the MCP JSON (deduped by id), appends them to `product_sink`, and writes them into `state["seen_products"]` (`_remember_products`, capped at 60, copy-mutate-reassign) so `try_on` can resolve `product_id → image_url` in later turns.
 - `stylist_capture_after_tool` additionally tags each item with `_group` (the outfit slot, derived from the search query) → the card's `group` field → grouped sections in the UI.
 - `stylist_before_tool` enforces a **hard 6-searches-per-turn budget** via `search_counter` — instruction-level caps alone get ignored when the model keeps seeing empty results.
+- `capture_tracking_after_tool` mirrors the same pattern for tracking: it parses the `kapruka_track_order` JSON, shapes it via `_tracking_card` (sanitizing recipient HTML artifacts like a stray `<BR`), and appends one dict to `tracking_sink` → the `tracking` SSE frame. `before_tracking_tool` folds flat args + forces JSON.
 
 **Virtual try-on (`fittingroom/tryon.py`)** — `async def try_on(tool_context, product_id)`: user photo (from `USER_PHOTOS`, keyed by `current_session_id`) + garment image (from `seen_products`, downloaded with a browser User-Agent — the CDN rejects bare clients) → `gemini-2.5-flash-image` → PNG saved to `static/generated/` (runtime output, served statically) → appended to `image_sink`. Returns structured statuses the agent instruction handles: `ok`, `no_photo`, `unknown_product`, `garment_image_failed`, `generation_failed`. `USER_PHOTOS` is in-memory by design (cleared on `--reload`; raw user photos are never written under `/static`). **This module must not import FastAPI** — `adk web` imports the agent graph. Image generation takes 10–30s and bills per image.
 
@@ -53,10 +55,12 @@ One package per agent plus a shared `tools/` package (mirrors the demo's `adk_ba
 | `tool` | `{"type":"tool","name"}` — in-progress chip (UI special-cases `try_on`) |
 | `product` | `{"type":"product","item":{id,name,summary,price,currency,image_url,in_stock,stock_level,url,group}}` — `group` is null except for stylist results |
 | `tryon_image` | `{"type":"tryon_image","url","product_id","product_name"}` |
+| `order` | `{"type":"order","order_ref","checkout_url","grand_total","currency","expires_at"}` — placed-order Pay link (checkout) |
+| `tracking` | `{"type":"tracking","order_number","status","status_display","delivery_date","amount","currency","recipient_name","recipient_city","progress":[{step,timestamp}],…}` — order-status + delivery-timeline card |
 | `text` | deltas when `event.partial`, else final aggregate (guarded against double-send) |
 | `error` / `done` | terminal frames |
 
-`static/index.html` is the single-file frontend: SSE parser, product grids with per-card "Try on" buttons (these submit `Try on product <id> (<name>)` through the normal chat path; the root routes it to the fitting room), outfit group labels, the 📷 upload button, and try-on image bubbles.
+`static/index.html` is the single-file frontend: SSE parser, product grids with per-card "Try on" buttons (these submit `Try on product <id> (<name>)` through the normal chat path; the root routes it to the fitting room), outfit group labels, the 📷 upload button, try-on image bubbles, and order-tracking status/timeline cards (`addTracking`).
 
 ## Conventions & gotchas
 

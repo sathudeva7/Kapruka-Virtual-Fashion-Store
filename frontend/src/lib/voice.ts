@@ -5,7 +5,7 @@
 import { wsUrl, voiceSinhala } from "./api";
 import { downsampleToPCM16, pcm16ToWav, TARGET_RATE } from "./audio";
 import { getSessionId } from "./session";
-import { useStore, type Lang, type ProductItem, type OrderItem, type TryonItem } from "./store";
+import { useStore, type Lang, type ProductItem, type OrderItem, type TryonItem, type TrackingItem } from "./store";
 
 type Mode = "live" | "sinhala_live" | "sinhala" | null;
 
@@ -144,6 +144,9 @@ export class VoiceClient {
       case "order":
         store.addOrder(evt as unknown as OrderItem);
         break;
+      case "tracking":
+        store.addTracking(evt as unknown as TrackingItem);
+        break;
       case "tool":
         store.setToolStatus(
           evt.name === "fitting_room_agent" ? "Creating your try-on look…" : `Searching the store…`
@@ -274,6 +277,7 @@ export class VoiceClient {
         if (products.length === 0) store.endBatch(); // nothing found => keep the wall
         (out.tryon_images || []).forEach((t) => store.addTryon(t as TryonItem));
         (out.orders || []).forEach((ord) => store.addOrder(ord as OrderItem));
+        (out.tracking || []).forEach((trk) => store.addTracking(trk as TrackingItem));
         if (out.reply_text) store.appendBotCaption(out.reply_text);
         if (out.audio_mp3_base64) {
           new Audio("data:audio/mp3;base64," + out.audio_mp3_base64).play().catch(() => {});

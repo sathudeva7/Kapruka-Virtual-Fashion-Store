@@ -34,9 +34,12 @@ from tools.sinks import (
     image_sink,
     current_session_id,
     order_sink,
+    tracking_sink,
     live_request_queue_var,
 )
 from tools import azure_speech
+from tools.callbacks import _tracking_card
+from tools.order_api import track_order_via_mcp
 from fittingroom.tryon import generate_tryon
 from tools.photostore import photo_store
 
@@ -112,6 +115,10 @@ class CheckoutDetailsRequest(BaseModel):
     city: str = ""
     date: str = ""
     instructions: str = ""
+
+
+class TrackOrderRequest(BaseModel):
+    order_number: str
 
 
 @app.get("/healthz")
@@ -191,6 +198,23 @@ async def checkout_details_endpoint(req: CheckoutDetailsRequest):
         req.date,
         req.instructions,
     )
+
+
+@app.post("/track_order")
+async def track_order_endpoint(req: TrackOrderRequest):
+    """Direct order tracking (no LLM): look up an order by the EXACT number the
+    shopper typed and return the shaped tracking card. Used by the 3D UI's "Track
+    an order" box so a mis-heard voice number can't break the lookup.
+
+    Returns {status:"ok", item:<tracking card>} or {status:"error", message}."""
+    data = await track_order_via_mcp(req.order_number)
+    if isinstance(data, dict) and data.get("order_number"):
+        return {"status": "ok", "item": _tracking_card(data)}
+    message = (
+        (data.get("message") if isinstance(data, dict) else None)
+        or "We couldn't find that order. Please check the number and try again."
+    )
+    return JSONResponse({"status": "error", "message": message}, status_code=404)
 
 
 @app.get("/img")
@@ -328,9 +352,12 @@ async def chat_endpoint(request: ChatRequest):
             current_session_id.set(request.session_id)  # for photo lookup in try_on
             orders: list = []
             order_sink.set(orders)  # placed-order payment links (checkout)
+            tracking: list = []
+            tracking_sink.set(tracking)  # order-tracking status cards (tracking)
             emitted = 0  # how many captured products we've already streamed
             img_emitted = 0  # how many try-on images we've already streamed
             ord_emitted = 0  # how many order links we've already streamed
+            trk_emitted = 0  # how many tracking cards we've already streamed
 
             def drain_products():
                 nonlocal emitted
@@ -354,6 +381,14 @@ async def chat_endpoint(request: ChatRequest):
                 while ord_emitted < len(orders):
                     frames += _sse({"type": "order", **orders[ord_emitted]})
                     ord_emitted += 1
+                return frames
+
+            def drain_tracking():
+                nonlocal trk_emitted
+                frames = ""
+                while trk_emitted < len(tracking):
+                    frames += _sse({"type": "tracking", **tracking[trk_emitted]})
+                    trk_emitted += 1
                 return frames
 
             streamed = False
@@ -385,8 +420,10 @@ async def chat_endpoint(request: ChatRequest):
                     if call is not None:
                         yield _sse({"type": "tool", "name": call.name})
 
-                # Emit captured product cards / try-on images / order link (before prose).
-                cards = drain_products() + drain_images() + drain_orders()
+                # Emit captured product cards / try-on images / order link /
+                # tracking card (before prose).
+                cards = (drain_products() + drain_images() + drain_orders()
+                         + drain_tracking())
                 if cards:
                     yield cards
 
@@ -405,7 +442,8 @@ async def chat_endpoint(request: ChatRequest):
                     streamed = False
 
             # Catch anything captured after the last event.
-            cards = drain_products() + drain_images() + drain_orders()
+            cards = (drain_products() + drain_images() + drain_orders()
+                     + drain_tracking())
             if cards:
                 yield cards
         except Exception as exc:  # surface backend errors to the UI
@@ -448,6 +486,8 @@ async def live_endpoint(websocket: WebSocket):
     image_sink.set(images)
     orders: list = []
     order_sink.set(orders)
+    tracking: list = []
+    tracking_sink.set(tracking)
     current_session_id.set(session_id)
 
     live_request_queue = LiveRequestQueue()
@@ -536,6 +576,7 @@ async def live_endpoint(websocket: WebSocket):
         emitted = 0
         img_emitted = 0
         ord_emitted = 0
+        trk_emitted = 0
         spoken = ""  # transcript already sent this turn (see caption block below)
         async for event in live_runner.run_live(
             user_id=USER_ID,
@@ -559,6 +600,9 @@ async def live_endpoint(websocket: WebSocket):
             while ord_emitted < len(orders):
                 await send_json({"type": "order", **orders[ord_emitted]})
                 ord_emitted += 1
+            while trk_emitted < len(tracking):
+                await send_json({"type": "tracking", **tracking[trk_emitted]})
+                trk_emitted += 1
 
             content = getattr(event, "content", None)
             parts = getattr(content, "parts", None) or []
@@ -730,6 +774,8 @@ async def voice_sinhala(session_id: str = Form(...), audio: UploadFile = File(..
     image_sink.set(images)
     orders: list = []
     order_sink.set(orders)
+    tracking: list = []
+    tracking_sink.set(tracking)
     current_session_id.set(session_id)
 
     try:
@@ -762,6 +808,7 @@ async def voice_sinhala(session_id: str = Form(...), audio: UploadFile = File(..
         "products": [_card(p) for p in sink],
         "tryon_images": images,
         "orders": orders,
+        "tracking": tracking,
     }
 
 
@@ -804,8 +851,10 @@ async def live_sinhala_endpoint(websocket: WebSocket):
     image_sink.set(images)
     orders: list = []
     order_sink.set(orders)
+    tracking: list = []
+    tracking_sink.set(tracking)
     current_session_id.set(session_id)
-    emitted = {"p": 0, "i": 0, "o": 0}
+    emitted = {"p": 0, "i": 0, "o": 0, "k": 0}
 
     loop = asyncio.get_running_loop()
     transcripts: asyncio.Queue[str] = asyncio.Queue()
@@ -828,6 +877,9 @@ async def live_sinhala_endpoint(websocket: WebSocket):
         while emitted["o"] < len(orders):
             await send_json({"type": "order", **orders[emitted["o"]]})
             emitted["o"] += 1
+        while emitted["k"] < len(tracking):
+            await send_json({"type": "tracking", **tracking[emitted["k"]]})
+            emitted["k"] += 1
         return new_products
 
     async def speak_pcm(pcm: bytes) -> float:

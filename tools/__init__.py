@@ -11,6 +11,7 @@ from tools.mcp import (
     search_toolset,
     delivery_toolset,
     order_toolset,
+    tracking_toolset,
 )
 from tools.sinks import product_sink
 from tools.callbacks import (
@@ -23,6 +24,8 @@ from tools.callbacks import (
     stylist_capture_after_tool,
     stylist_before_model,
     stylist_after_agent,
+    before_tracking_tool,
+    capture_tracking_after_tool,
 )
 from tools.cart import manage_cart
 
@@ -34,6 +37,7 @@ __all__ = [
     "search_toolset",
     "delivery_toolset",
     "order_toolset",
+    "tracking_toolset",
     "product_sink",
     "SUPPORTED_CURRENCIES",
     "ALLOWED_SORTS",
@@ -43,5 +47,7 @@ __all__ = [
     "stylist_capture_after_tool",
     "stylist_before_model",
     "stylist_after_agent",
+    "before_tracking_tool",
+    "capture_tracking_after_tool",
     "manage_cart",
 ]
