@@ -43,6 +43,7 @@ export default function HUD() {
   const lang = useStore((s) => s.lang);
   const connection = useStore((s) => s.connection);
   const userCaption = useStore((s) => s.userCaption);
+  const userPartial = useStore((s) => s.userPartial);
   const botCaption = useStore((s) => s.botCaption);
   const toolStatus = useStore((s) => s.toolStatus);
   const captionsHidden = useStore((s) => s.captionsHidden);
@@ -625,7 +626,7 @@ export default function HUD() {
       )}
 
       {/* captions (dismissable — they can cover the small mobile screen) */}
-      {!captionsHidden && (userCaption || botCaption || toolStatus) && (
+      {!captionsHidden && (userCaption || userPartial || botCaption || toolStatus) && (
         <div style={{ ...panel({ bottom: 110 }), left: "50%", transform: "translateX(-50%)", maxWidth: 560, width: "calc(100% - 32px)", paddingRight: 30 }}>
           <button
             onClick={() => setCaptionsHidden(true)}
@@ -635,7 +636,12 @@ export default function HUD() {
           >
             ✕
           </button>
-          {userCaption && <div style={{ fontSize: 13, opacity: 0.6 }}>You: {userCaption}</div>}
+          {userPartial ? (
+            // in-progress utterance takes priority over the last completed one
+            <div style={{ fontSize: 13, opacity: 0.4, fontStyle: "italic" }}>You: {userPartial}…</div>
+          ) : (
+            userCaption && <div style={{ fontSize: 13, opacity: 0.6 }}>You: {userCaption}</div>
+          )}
           {toolStatus && <div style={{ fontSize: 12, color: "#7a5c10", margin: "2px 0" }}>🔎 {toolStatus}</div>}
           {botCaption && <div style={{ fontSize: 15, marginTop: 2 }}>{botCaption}</div>}
         </div>

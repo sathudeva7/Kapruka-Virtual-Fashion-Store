@@ -135,6 +135,7 @@ interface StoreState {
 
   // conversation surface
   userCaption: string;
+  userPartial: string; // interim (still-talking) transcript; cleared on final
   botCaption: string;
   toolStatus: string | null;
   error: string | null;
@@ -171,6 +172,7 @@ interface StoreState {
   setCheckoutOpen: (open: boolean) => void;
   setCheckoutSaved: (saved: boolean) => void;
   setUserCaption: (text: string) => void;
+  setUserPartial: (text: string) => void;
   appendBotCaption: (text: string) => void;
   newBotTurn: () => void;
   setToolStatus: (s: string | null) => void;
@@ -214,6 +216,7 @@ export const useStore = create<StoreState>((set, get) => ({
   checkoutSaved: false,
 
   userCaption: "",
+  userPartial: "",
   botCaption: "",
   toolStatus: null,
   error: null,
@@ -302,7 +305,8 @@ export const useStore = create<StoreState>((set, get) => ({
   setCheckoutOpen: (open) => set({ checkoutOpen: open }),
   setCheckoutSaved: (saved) => set({ checkoutSaved: saved }),
 
-  setUserCaption: (text) => set({ userCaption: text }),
+  setUserCaption: (text) => set({ userCaption: text, userPartial: "" }),
+  setUserPartial: (text) => set({ userPartial: text }),
   appendBotCaption: (text) => set((st) => ({ botCaption: st.botCaption + text })),
   newBotTurn: () => set({ botCaption: "" }),
   setToolStatus: (s) => set({ toolStatus: s }),

@@ -18,6 +18,18 @@ import tempfile
 SINHALA_STT_LANG = os.getenv("AZURE_STT_LANG", "si-LK")
 SINHALA_TTS_VOICE = os.getenv("AZURE_TTS_VOICE", "si-LK-ThiliniNeural")
 
+# Endpointing ("when did the shopper finish talking?"). Azure's default silence
+# timeout (~500ms) is far too eager for Sinhala speakers who pause mid-phrase, so
+# it splits one sentence into several recognised fragments. Bumping the silence
+# timeout is the safe, locale-agnostic fix and is on by default.
+SINHALA_SEGMENTATION_SILENCE_MS = os.getenv("AZURE_SEGMENTATION_SILENCE_MS", "1000")
+# Segmentation strategy: "Default" (fixed silence timer) or "Semantic" (model
+# decides the turn boundary — more natural, no extra cost). Semantic is OFF by
+# default: for some locales/regions (observed with si-LK) it suppresses the final
+# `recognized` event entirely, so the agent never replies. Opt in via env once
+# you've confirmed it produces finals in your region.
+SINHALA_SEGMENTATION_STRATEGY = os.getenv("AZURE_SEGMENTATION_STRATEGY", "Default")
+
 
 class AzureSpeechError(RuntimeError):
     """Raised when Azure speech is misconfigured or a call fails."""
@@ -168,7 +180,36 @@ def synthesize_pcm_stream(text: str, on_chunk, voice: str = SINHALA_TTS_VOICE) -
     return total
 
 
-def start_continuous(on_recognized, on_speech_start=None, language: str = SINHALA_STT_LANG):
+def _apply_endpointing(speechsdk, config) -> None:
+    """Tune turn detection on a SpeechConfig: bump the segmentation silence
+    timeout and, when supported, switch to semantic segmentation. Both are
+    best-effort — older SDKs lack the property ids / strategy, so we degrade
+    quietly rather than break recognition."""
+    # Longer silence before Azure declares the turn over → don't cut speakers off
+    # mid-sentence. Always safe to set.
+    try:
+        config.set_property(
+            speechsdk.PropertyId.Speech_SegmentationSilenceTimeoutMs,
+            str(SINHALA_SEGMENTATION_SILENCE_MS),
+        )
+    except Exception:
+        pass
+    # Model-based ("Semantic") turn detection when the SDK exposes it.
+    if (SINHALA_SEGMENTATION_STRATEGY or "").lower() == "semantic":
+        try:
+            config.set_property(
+                speechsdk.PropertyId.Speech_SegmentationStrategy, "Semantic"
+            )
+        except Exception:
+            pass
+
+
+def start_continuous(
+    on_recognized,
+    on_speech_start=None,
+    on_recognizing=None,
+    language: str = SINHALA_STT_LANG,
+):
     """Start hands-free Sinhala recognition over a push audio stream.
 
     This is what makes the live (no push-to-talk) Sinhala path possible: instead
@@ -182,6 +223,9 @@ def start_continuous(on_recognized, on_speech_start=None, language: str = SINHAL
             with `loop.call_soon_threadsafe(...)`.
         on_speech_start: optional, called (Azure thread) when speech begins — a
             barge-in cue for later; unused by the half-duplex v1.
+        on_recognizing: optional, called (Azure thread) with the partial (interim)
+            transcript as the shopper is still speaking — drives a live "we're
+            hearing you" caption. Bridge onto your loop like `on_recognized`.
         language: STT locale (default si-LK).
 
     Returns:
@@ -191,6 +235,7 @@ def start_continuous(on_recognized, on_speech_start=None, language: str = SINHAL
     """
     speechsdk, config = _speech_config()
     config.speech_recognition_language = language
+    _apply_endpointing(speechsdk, config)
     fmt = speechsdk.audio.AudioStreamFormat(
         samples_per_second=16000, bits_per_sample=16, channels=1
     )
@@ -207,6 +252,12 @@ def start_continuous(on_recognized, on_speech_start=None, language: str = SINHAL
                 on_recognized(text)
 
     recognizer.recognized.connect(_recognized)
+    if on_recognizing is not None:
+        def _recognizing(evt):
+            text = (evt.result.text or "").strip()
+            if text:
+                on_recognizing(text)
+        recognizer.recognizing.connect(_recognizing)
     if on_speech_start is not None:
         recognizer.speech_start_detected.connect(lambda _evt: on_speech_start())
 

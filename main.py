@@ -684,7 +684,11 @@ _SINHALA_VOICE_PREAMBLE = (
     "matters and ask one short next thing. IMPORTANT: only say you found items if "
     "the search tool actually returned products this turn. If the search returns "
     "nothing or fails, say so honestly (e.g. ask to try different words) — never "
-    "describe products you did not actually get back.]\n"
+    "describe products you did not actually get back. SEARCH IN ENGLISH: the "
+    "catalog is indexed in English, so ALWAYS pass English keywords to the search "
+    "tool's `q` even though the shopper speaks Sinhala and you reply in Sinhala — "
+    "e.g. සාරි → \"saree\", කමිසය → \"shirt\", සපත්තු → \"shoes\", ගවුම → \"dress\", "
+    "අත් බෑගය → \"handbag\". Never send Sinhala-script words as the search query.]\n"
 )
 
 # A fixed opening line for the live Sinhala session — synthesised directly (no LLM
@@ -821,10 +825,15 @@ async def voice_sinhala(session_id: str = Form(...), audio: UploadFile = File(..
 # Sinhala reply as raw 24 kHz PCM streamed back as binary frames (same shape the
 # /live Gemini path uses, so the browser plays it through the same scheduler).
 #
-# v1 is HALF-DUPLEX: while the assistant is thinking/speaking we stop feeding the
-# recogniser, so it never transcribes the bot's own voice (no barge-in yet). The
-# frame protocol mirrors /live: server→client JSON {product,tryon_image,order,tool,
-# user_text,text,turn_complete,error} plus binary audio; client→server binary mic
+# FULL-DUPLEX with barge-in: the recogniser is fed continuously, even while the
+# assistant talks, so the shopper can interrupt. Azure's `speech_start_detected`
+# fires `barge_in()` → the TTS send-loops stop, an `interrupted` frame tells the
+# client to drop queued audio, and the shopper's utterance becomes the next turn.
+# This relies on BROWSER ECHO CANCELLATION (getUserMedia) to keep the bot's own
+# voice out of the mic feed; without it (or with loud speakers) Azure may hear the
+# bot and self-interrupt — headphones are the safest. The frame protocol mirrors
+# /live: server→client JSON {product,tryon_image,order,tool,user_text,user_partial,
+# text,turn_complete,interrupted,error} plus binary audio; client→server binary mic
 # PCM (16 kHz mono).
 _TTS_FRAME_BYTES = 32000  # ~0.67s of 24 kHz/16-bit PCM per binary frame
 
@@ -858,12 +867,33 @@ async def live_sinhala_endpoint(websocket: WebSocket):
 
     loop = asyncio.get_running_loop()
     transcripts: asyncio.Queue[str] = asyncio.Queue()
+    # Interim (still-talking) transcripts → live "we're hearing you" caption.
+    partials: asyncio.Queue[str] = asyncio.Queue()
     # While True, the assistant is thinking/speaking: drop inbound mic audio so the
     # recogniser doesn't pick up the bot's own voice (half-duplex guard).
     speaking = {"on": False}
+    # Barge-in: set when the shopper starts talking over the bot. The audio-send
+    # loops watch it and stop streaming TTS immediately. `intr["sent"]` makes sure
+    # the one-shot `interrupted` frame is sent only once per barge-in (all sends
+    # happen inside the single `processor` coroutine, so this stays race-free).
+    interrupt = asyncio.Event()
+    intr = {"sent": False}
 
     async def send_json(payload: dict) -> None:
         await websocket.send_text(json.dumps(payload))
+
+    async def signal_interrupt_once() -> None:
+        """Tell the client to drop queued assistant audio (once per barge-in)."""
+        if not intr["sent"]:
+            intr["sent"] = True
+            await send_json({"type": "interrupted"})
+
+    def barge_in() -> None:
+        """Azure detected the shopper speaking while the bot talks → flag it.
+        Runs on the event loop (bridged from the Azure SDK thread)."""
+        if speaking["on"] and not interrupt.is_set():
+            interrupt.set()
+            speaking["on"] = False  # let partials/mic flow for the new utterance
 
     async def drain_cards() -> int:
         new_products = 0
@@ -884,8 +914,12 @@ async def live_sinhala_endpoint(websocket: WebSocket):
 
     async def speak_pcm(pcm: bytes) -> float:
         """Stream ready PCM bytes (e.g. a cached greeting/ack) to the client and
-        return its play length in seconds. PCM is 24 kHz/16-bit mono = 48000 B/s."""
+        return its play length in seconds. PCM is 24 kHz/16-bit mono = 48000 B/s.
+        Stops early if the shopper barges in."""
         for off in range(0, len(pcm), _TTS_FRAME_BYTES):
+            if interrupt.is_set():
+                await signal_interrupt_once()
+                break
             await websocket.send_bytes(pcm[off:off + _TTS_FRAME_BYTES])
         return len(pcm) / 48000.0
 
@@ -911,6 +945,11 @@ async def live_sinhala_endpoint(websocket: WebSocket):
             chunk = await q.get()
             if chunk is None:
                 break
+            if interrupt.is_set():
+                # barge-in: stop sending audio but keep draining the queue to the
+                # sentinel so the synth thread finishes cleanly (no hang/leak).
+                await signal_interrupt_once()
+                continue
             await websocket.send_bytes(chunk)
             total += len(chunk)
         await task  # surface any synthesis error after the stream drains
@@ -923,35 +962,55 @@ async def live_sinhala_endpoint(websocket: WebSocket):
         total = 0
         try:
             for sentence in _split_sentences(text):
+                if interrupt.is_set():
+                    break  # don't start a new sentence after a barge-in
                 total += await _stream_tts(sentence)
         except azure_speech.AzureSpeechError:
             pass  # caption already sent; skip remaining audio if TTS fails
         return total / 48000.0
 
-    # Azure fires `recognized` on its own thread → hop back onto the event loop.
+    # Azure fires `recognized`/`recognizing` on its own thread → hop back onto the
+    # event loop. `recognized` = final utterance (a turn); `recognizing` = interim
+    # partial while still talking (drives a live caption, doesn't start a turn).
     recognizer, push_stream = await asyncio.to_thread(
         azure_speech.start_continuous,
         lambda text: loop.call_soon_threadsafe(transcripts.put_nowait, text),
+        on_recognizing=lambda text: loop.call_soon_threadsafe(
+            partials.put_nowait, text),
+        on_speech_start=lambda: loop.call_soon_threadsafe(barge_in),
     )
 
+    async def partial_pump() -> None:
+        """Forward interim transcripts to the client as live partial captions."""
+        while True:
+            text = await partials.get()
+            if not text.strip():
+                continue
+            await send_json({"type": "user_partial", "content": text})
+
     async def upstream() -> None:
-        """Pump the client's mic PCM into Azure (unless the bot is speaking)."""
+        """Pump the client's mic PCM into Azure. Always on now (full-duplex): the
+        recogniser must hear the shopper even while the bot talks so they can barge
+        in. Browser echo cancellation keeps the bot's own voice out of the feed."""
         try:
             while True:
                 msg = await websocket.receive()
                 if msg.get("type") == "websocket.disconnect":
                     break
                 data = msg.get("bytes")
-                if data and not speaking["on"]:
+                if data:
                     push_stream.write(data)
         except WebSocketDisconnect:
             pass
 
     async def end_turn(play_secs: float) -> None:
-        """Drop the half-duplex guard once the reply has finished playing."""
+        """Close out a turn. On a clean finish, hold briefly until playback ends
+        then discard any echo Azure picked up. On a barge-in, skip both — the
+        shopper is already talking and that utterance must NOT be flushed."""
         await send_json({"type": "turn_complete"})
-        # Hold the guard until playback ~ends (plus margin), then discard anything
-        # Azure recognised from the bot's own audio so the next turn starts clean.
+        if interrupt.is_set():
+            speaking["on"] = False
+            return
         await asyncio.sleep(play_secs + 0.4)
         while not transcripts.empty():
             transcripts.get_nowait()
@@ -959,6 +1018,8 @@ async def live_sinhala_endpoint(websocket: WebSocket):
 
     async def processor() -> None:
         """Greet, then turn each recognised utterance into a spoken reply."""
+        interrupt.clear()
+        intr["sent"] = False
         speaking["on"] = True
         # Precompute the fixed greeting + acknowledgement PCM once (cached
         # process-wide) so both replay instantly without a TTS round-trip.
@@ -976,6 +1037,8 @@ async def live_sinhala_endpoint(websocket: WebSocket):
             transcript = await transcripts.get()
             if not transcript.strip():
                 continue
+            interrupt.clear()  # fresh turn — clear any prior barge-in flag
+            intr["sent"] = False
             speaking["on"] = True
             await send_json({"type": "user_text", "content": transcript})
             # Instant cached acknowledgement so the shopper hears us right away,
@@ -1008,6 +1071,7 @@ async def live_sinhala_endpoint(websocket: WebSocket):
 
     up = asyncio.create_task(upstream())
     proc = asyncio.create_task(processor())
+    pump = asyncio.create_task(partial_pump())
     try:
         await up  # completes on client disconnect
     except WebSocketDisconnect:
@@ -1021,6 +1085,7 @@ async def live_sinhala_endpoint(websocket: WebSocket):
             pass
     finally:
         proc.cancel()
+        pump.cancel()
         try:
             await asyncio.to_thread(recognizer.stop_continuous_recognition)
         except Exception:

@@ -37,7 +37,12 @@ export class VoiceClient {
 
   // --- mic ---------------------------------------------------------------
   private async openMic(): Promise<void> {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Echo cancellation is essential for barge-in: it keeps the assistant's own
+    // voice (over the speakers) out of the mic feed, so the Sinhala recogniser
+    // only hears the shopper. Noise suppression + AGC clean up the rest.
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
     const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     const src = ctx.createMediaStreamSource(stream);
     const node = ctx.createScriptProcessor(4096, 1, 1);
@@ -151,6 +156,11 @@ export class VoiceClient {
         store.setToolStatus(
           evt.name === "fitting_room_agent" ? "Creating your try-on look…" : `Searching the store…`
         );
+        break;
+      case "user_partial":
+        // interim transcript while the shopper is still talking — live caption,
+        // no new turn yet (cleared when the final user_text lands)
+        store.setUserPartial(String(evt.content || ""));
         break;
       case "user_text":
         store.setUserCaption(String(evt.content || ""));
