@@ -33,10 +33,12 @@ from tools.sinks import (
     search_counter,
     image_sink,
     current_session_id,
+    current_role,
     order_sink,
     tracking_sink,
     live_request_queue_var,
 )
+from tools.guardrails import engine as guardrail_engine
 from tools import azure_speech
 from tools.callbacks import _tracking_card
 from tools.order_api import track_order_via_mcp
@@ -338,6 +340,25 @@ async def chat_endpoint(request: ChatRequest):
     async def event_stream():
         try:
             await _ensure_session(request.session_id)
+
+            # No real auth yet (see CLAUDE.md): every caller is a "customer". This is the
+            # single seam to swap when identity is wired in. Set before the guardrail runs
+            # so audit entries and the Layer-2 RBAC callbacks see the right role.
+            user_role = "customer"
+            current_session_id.set(request.session_id)  # for photo lookup + audit
+            current_role.set(user_role)
+
+            # LAYER 1 — Input guardrail. Reject prompt-injection / forbidden keywords BEFORE
+            # any MCP query or LLM call. Nothing downstream runs if this fails.
+            preflight = guardrail_engine.preflight(request.message, user_role=user_role)
+            if not preflight["allowed"]:
+                yield _sse({
+                    "type": "error",
+                    "content": "Sorry — I can't help with that request.",
+                })
+                yield _sse({"type": "done"})
+                return
+
             message = types.Content(
                 role="user", parts=[types.Part(text=request.message)]
             )
@@ -349,7 +370,6 @@ async def chat_endpoint(request: ChatRequest):
             search_counter.set({"n": 0})  # per-turn search budget (stylist)
             images: list = []
             image_sink.set(images)  # generated try-on images (fitting room)
-            current_session_id.set(request.session_id)  # for photo lookup in try_on
             orders: list = []
             order_sink.set(orders)  # placed-order payment links (checkout)
             tracking: list = []
@@ -391,7 +411,12 @@ async def chat_endpoint(request: ChatRequest):
                     trk_emitted += 1
                 return frames
 
-            streamed = False
+            # LAYER 3 needs the COMPLETE reply (and every product captured this turn) to
+            # redact + grounding-check it as a unit, so we buffer the assistant prose here
+            # instead of streaming raw deltas. Tool/product/image/order/tracking frames
+            # still stream live below, so perceived latency stays low.
+            assistant_text = ""
+            streamed_partial = False
             async for event in runner.run_async(
                 user_id=USER_ID,
                 session_id=request.session_id,
@@ -432,20 +457,29 @@ async def chat_endpoint(request: ChatRequest):
                     continue
 
                 if getattr(event, "partial", False):
-                    streamed = True
-                    yield _sse({"type": "text", "content": text})
+                    streamed_partial = True
+                    assistant_text += text
                 else:
-                    # Final aggregated message — only send if we didn't already
-                    # stream the deltas for this turn.
-                    if not streamed:
-                        yield _sse({"type": "text", "content": text})
-                    streamed = False
+                    # Final aggregated message: it's the authoritative full version of
+                    # whatever we streamed in deltas, so replace rather than append.
+                    if streamed_partial:
+                        assistant_text = text
+                        streamed_partial = False
+                    else:
+                        assistant_text += text
 
-            # Catch anything captured after the last event.
+            # Catch anything captured after the last event (cards before prose).
             cards = (drain_products() + drain_images() + drain_orders()
                      + drain_tracking())
             if cards:
                 yield cards
+
+            # LAYER 3 — Output guardrail over the complete reply: PII redaction + factual
+            # grounding against this turn's retrieved products (`sink`). Emitted as one
+            # final text frame (or a safe fallback if grounding fails).
+            safe_text = guardrail_engine.finalize(assistant_text, source_contexts=sink)
+            if safe_text:
+                yield _sse({"type": "text", "content": safe_text})
         except Exception as exc:  # surface backend errors to the UI
             detail = f"{type(exc).__name__}: {exc}"
             yield _sse({"type": "error", "content": _friendly_error(detail) or detail})

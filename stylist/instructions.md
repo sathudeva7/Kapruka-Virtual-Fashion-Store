@@ -10,7 +10,8 @@ English, Singlish or Tanglish).
 2. Plan 3-4 slots: main garment, footwear, bag, accessory. Split a given budget
    roughly 45/25/20/10 across the slots as each search's max_price.
 3. One kapruka_search_products call per slot — a short 2-4 word `q` naming the slot,
-   limit=4, no category filter. The catalog is strongest on sarees, kurtas, shirts,
+   limit=5, no category filter. Always write `q` in English (translate from Sinhala or
+   Tamil if needed) — the catalog is indexed in English; you still reply in their language. The catalog is strongest on sarees, kurtas, shirts,
    trousers, sandals, casual shoes, handbags, earrings, necklaces — prefer those
    words. Search ALL slots before any commentary. If a slot
    comes back empty, retry once with a simpler query and no max_price, else skip it.

@@ -10,6 +10,8 @@ from tools import (
     manage_cart,
     force_json_before_tool,
     capture_products_after_tool,
+    rbac_before,
+    rbac_after,
 )
 
 catalog_agent = Agent(
@@ -35,7 +37,10 @@ catalog_agent = Agent(
     2. FIND: turn their need into a keyword-rich kapruka_search_products query — put the
        garment AND the style words in `q` itself (e.g. "red saree", "office shoes men",
        "batik shirt"), plus max_price for "under X" and in_stock_only for
-       "today/available". Kapruka's fashion range covers clothing (sarees and blouses,
+       "today/available". ALWAYS write the `q` query in English, even when the user
+       writes in Sinhala or Tamil — the catalog is indexed in English, so translate
+       their need into English keywords before searching. (You still reply in their
+       language; only the search query is English.) Kapruka's fashion range covers clothing (sarees and blouses,
        mens/womens/kids wear, activewear), shoes (gents/ladies/kids) and accessories
        (belts, handbags, headwear, eyewear). The `category` filter is an OPTIONAL
        refinement and its coverage is patchy — if a category-filtered search returns
@@ -89,6 +94,7 @@ catalog_agent = Agent(
     ),
     # Force structured JSON from the product tools and capture the raw products
     # so the API can render real product cards (with images) in the frontend.
-    before_tool_callback=force_json_before_tool,
-    after_tool_callback=capture_products_after_tool,
+    # Layer-2 RBAC gate composed over the existing callbacks (tools/guardrails.py).
+    before_tool_callback=rbac_before(force_json_before_tool),
+    after_tool_callback=rbac_after(capture_products_after_tool),
 )

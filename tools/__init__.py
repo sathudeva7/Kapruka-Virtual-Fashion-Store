@@ -28,6 +28,15 @@ from tools.callbacks import (
     capture_tracking_after_tool,
 )
 from tools.cart import manage_cart
+from tools.guardrails import (
+    InputGuardrail,
+    DocumentRetrievalEngine,
+    OutputGuardrail,
+    EnterpriseAIEngine,
+    engine as guardrail_engine,
+    rbac_before,
+    rbac_after,
+)
 
 __all__ = [
     "VOICE",
@@ -50,4 +59,11 @@ __all__ = [
     "before_tracking_tool",
     "capture_tracking_after_tool",
     "manage_cart",
+    "InputGuardrail",
+    "DocumentRetrievalEngine",
+    "OutputGuardrail",
+    "EnterpriseAIEngine",
+    "guardrail_engine",
+    "rbac_before",
+    "rbac_after",
 ]

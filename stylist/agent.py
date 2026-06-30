@@ -19,6 +19,8 @@ from tools import (
     stylist_capture_after_tool,
     stylist_before_model,
     stylist_after_agent,
+    rbac_before,
+    rbac_after,
 )
 
 _INSTRUCTIONS = (Path(__file__).parent / "instructions.md").read_text(encoding="utf-8")
@@ -42,8 +44,8 @@ stylist_agent = Agent(
     # Same arg normalization as the catalog agent plus a hard per-turn search
     # budget; the after-callback variant tags each captured product with its
     # outfit slot for grouped rendering.
-    before_tool_callback=stylist_before_tool,
-    after_tool_callback=stylist_capture_after_tool,
+    before_tool_callback=rbac_before(stylist_before_tool),
+    after_tool_callback=rbac_after(stylist_capture_after_tool),
     # Fresh-outfit memory: previously styled products are committed to state
     # when the turn ends and re-injected as a reminder on later turns, so
     # "style me again" yields different pieces (demo: InjectPreviousProducts).

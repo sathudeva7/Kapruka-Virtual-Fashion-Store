@@ -13,6 +13,7 @@ from tools import (
     tracking_toolset,
     before_tracking_tool,
     capture_tracking_after_tool,
+    rbac_before,
 )
 
 tracking_agent = Agent(
@@ -42,6 +43,6 @@ tracking_agent = Agent(
         temperature=0.4,
         thinking_config=types.ThinkingConfig(thinking_budget=0),  # lower latency
     ),
-    before_tool_callback=before_tracking_tool,
+    before_tool_callback=rbac_before(before_tracking_tool),
     after_tool_callback=capture_tracking_after_tool,
 )
