@@ -17,6 +17,7 @@ from tools import (
     delivery_toolset,
     order_toolset,
     _fold_flat_args,
+    rbac_before,
 )
 from tools.sinks import order_sink
 
@@ -298,7 +299,7 @@ checkout_agent = Agent(
         temperature=0.6,
         thinking_config=types.ThinkingConfig(thinking_budget=0),  # lower latency
     ),
-    before_tool_callback=before_checkout_tool,
+    before_tool_callback=rbac_before(before_checkout_tool),
     after_tool_callback=after_checkout_tool,
 )
 

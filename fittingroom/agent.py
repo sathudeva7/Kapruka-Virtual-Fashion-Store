@@ -9,6 +9,8 @@ from tools import (
     manage_cart,
     force_json_before_tool,
     capture_products_after_tool,
+    rbac_before,
+    rbac_after,
 )
 from fittingroom.tryon import try_on
 
@@ -49,6 +51,6 @@ fitting_room_agent = Agent(
         thinking_config=types.ThinkingConfig(thinking_budget=0),
     ),
     # Product lookups here also populate state["seen_products"] for try_on.
-    before_tool_callback=force_json_before_tool,
-    after_tool_callback=capture_products_after_tool,
+    before_tool_callback=rbac_before(force_json_before_tool),
+    after_tool_callback=rbac_after(capture_products_after_tool),
 )

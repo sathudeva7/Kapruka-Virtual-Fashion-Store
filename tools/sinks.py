@@ -33,6 +33,14 @@ current_session_id: "contextvars.ContextVar[str | None]" = contextvars.ContextVa
     "current_session_id", default=None
 )
 
+# The authenticated caller's role for this request, used by the Layer-2 RBAC
+# guardrail (tools/guardrails.py) to gate which MCP tools may run and to filter
+# retrieved items. main.py sets it per /chat request. There is no real auth yet,
+# so it defaults to "customer"; this is the single seam to wire real identity to.
+current_role: "contextvars.ContextVar[str | None]" = contextvars.ContextVar(
+    "current_role", default=None
+)
+
 # Placed orders, mirroring product_sink: the checkout after-tool callback appends
 # {"checkout_url", "order_ref", "grand_total", "currency", "expires_at"} dicts.
 # The payment link lives only in the agent's prose otherwise — which the live
