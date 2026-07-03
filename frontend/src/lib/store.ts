@@ -26,6 +26,7 @@ export interface CartLine {
   category?: string;
   unit_price: number;
   quantity: number;
+  image_url?: string;
 }
 
 export interface CartState {

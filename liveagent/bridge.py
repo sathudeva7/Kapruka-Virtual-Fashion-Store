@@ -51,6 +51,7 @@ async def cart_add_item(
     category: str = "",
     price: int = 0,
     quantity: int = 1,
+    image_url: str = "",
 ) -> dict:
     """Add a product to the live-session cart (no LLM)."""
     await _ensure(session_id)
@@ -60,7 +61,7 @@ async def cart_add_item(
     if session is None:
         return {"status": "error", "message": "Session not found."}
     cart = session.state.get("cart", [])
-    new_cart, err = cart_add_line(cart, product_id, name, category, price, quantity)
+    new_cart, err = cart_add_line(cart, product_id, name, category, price, quantity, image_url)
     if err:
         return err
     await _runner.session_service.append_event(
@@ -122,6 +123,34 @@ async def cart_remove_item(session_id: str, product_id: str) -> dict:
         return {"status": "error", "message": "Session not found."}
     cart = session.state.get("cart", [])
     new_cart = [line for line in cart if line.get("product_id") != product_id]
+    await _runner.session_service.append_event(
+        session, Event(author="cart_api", state={"cart": new_cart})
+    )
+    return _cart_summary(new_cart)
+
+
+async def cart_set_quantity(session_id: str, product_id: str, quantity: int) -> dict:
+    """Set a cart line's quantity to an absolute value (no LLM).
+
+    quantity <= 0 removes the line, matching manage_cart's "update" action.
+    """
+    await _ensure(session_id)
+    session = await _runner.session_service.get_session(
+        app_name=_APP, user_id=_USER, session_id=session_id
+    )
+    if session is None:
+        return {"status": "error", "message": "Session not found."}
+    cart = session.state.get("cart", [])
+    new_cart = [dict(line) for line in cart]
+    for line in new_cart:
+        if line.get("product_id") == product_id:
+            break
+    else:
+        return {"status": "error", "message": f"{product_id} is not in the cart."}
+    if quantity <= 0:
+        new_cart = [l for l in new_cart if l.get("product_id") != product_id]
+    else:
+        line["quantity"] = quantity
     await _runner.session_service.append_event(
         session, Event(author="cart_api", state={"cart": new_cart})
     )
@@ -289,6 +318,19 @@ async def place_order() -> str:
     return ("ORDER_CONFIRMING. Tell the shopper to please hold on a moment while we "
             "confirm their order with Kapruka. Do NOT say it's done and do NOT mention "
             "the Pay now button yet — you'll be told the moment it's confirmed.")
+
+
+# Public handles so the Sinhala voice path can run its turns on THIS runner — the
+# same session store the /cart endpoints (cart_view/cart_add_item) read — instead of
+# main.py's separate text `runner`. Otherwise Sinhala voice-added cart items land in a
+# store the 3D UI cart widget never reads, so the panel shows nothing (see the
+# already-accepted voice/text cart split at the top of this module).
+shared_runner = _runner
+
+
+async def ensure_shared_session(session_id: str) -> None:
+    """Create the shared-runner session if absent (idempotent)."""
+    await _ensure(session_id)
 
 
 async def shop(request: str) -> str:

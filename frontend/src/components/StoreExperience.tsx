@@ -15,6 +15,7 @@ import TryOnRoom from "./three/TryOnRoom";
 import ProductRack from "./three/ProductRack";
 import PlayerControls, { KEYMAP } from "./three/PlayerControls";
 import HUD from "./hud/HUD";
+import WelcomeModal from "./hud/WelcomeModal";
 
 export default function StoreExperience() {
   const seedFeatured = useStore((s) => s.seedFeatured);
@@ -50,6 +51,7 @@ export default function StoreExperience() {
         </Canvas>
       </KeyboardControls>
       <HUD />
+      <WelcomeModal />
     </div>
   );
 }

@@ -34,6 +34,7 @@ def cart_add_line(
     category: str = "",
     price: int = 0,
     quantity: int = 1,
+    image_url: str = "",
 ) -> tuple[list | None, dict | None]:
   """Add a product to a cart copy. Returns (new_cart, None) or (None, error)."""
   if not product_id or not name:
@@ -46,6 +47,9 @@ def cart_add_line(
   for line in cart:
     if line["product_id"] == product_id:
       line["quantity"] += quantity
+      # Backfill a thumbnail if this line was first added without one (e.g. via voice).
+      if image_url and not line.get("image_url"):
+        line["image_url"] = image_url
       break
   else:
     cart.append({
@@ -54,6 +58,7 @@ def cart_add_line(
       "category": category,
       "unit_price": price,
       "quantity": quantity,
+      "image_url": image_url,
     })
   return cart, None
 
@@ -66,6 +71,7 @@ def manage_cart(
     category: str = "",
     price: int = 0,
     quantity: int = 1,
+    image_url: str = "",
 ) -> dict:
   """Manage the session shopping cart. Returns the updated cart and total.
 
@@ -89,7 +95,15 @@ def manage_cart(
     return _cart_summary([])
 
   if action == "add":
-    cart, err = cart_add_line(cart, product_id, name, category, price, quantity)
+    # Voice adds go through the LLM, which fills these args and reliably omits the
+    # long CDN image_url — so the cart line would render as a bare letter monogram.
+    # Backfill it from seen_products (the same product_id -> image_url map try_on
+    # uses), so a thumbnail shows regardless of whether the LLM supplied one.
+    if not image_url and product_id:
+      info = (tool_context.state.get("seen_products") or {}).get(product_id)
+      if info:
+        image_url = info.get("image_url") or ""
+    cart, err = cart_add_line(cart, product_id, name, category, price, quantity, image_url)
     if err:
       return err
     tool_context.state["cart"] = cart  # reassign so ADK persists the change
