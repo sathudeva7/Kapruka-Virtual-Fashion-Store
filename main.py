@@ -25,8 +25,11 @@ from liveagent import live_concierge
 from liveagent.bridge import (
     cart_add_item,
     cart_remove_item,
+    cart_set_quantity,
     cart_view,
     save_checkout_details,
+    shared_runner,
+    ensure_shared_session,
 )
 from tools import product_sink
 from tools.sinks import (
@@ -102,11 +105,18 @@ class CartAddRequest(BaseModel):
     category: str = ""
     price: int = 0
     quantity: int = 1
+    image_url: str = ""
 
 
 class CartRemoveRequest(BaseModel):
     session_id: str
     product_id: str
+
+
+class CartUpdateRequest(BaseModel):
+    session_id: str
+    product_id: str
+    quantity: int
 
 
 class CheckoutDetailsRequest(BaseModel):
@@ -163,6 +173,7 @@ async def cart_add_endpoint(req: CartAddRequest):
         req.category,
         req.price,
         req.quantity,
+        req.image_url,
     )
 
 
@@ -175,6 +186,18 @@ async def cart_remove_endpoint(req: CartRemoveRequest):
             status_code=400,
         )
     return await cart_remove_item(req.session_id, req.product_id)
+
+
+@app.post("/cart/update")
+async def cart_update_endpoint(req: CartUpdateRequest):
+    """Set a line's quantity in the live-session cart for the 3D UI's trolley
+    (no LLM). A quantity of 0 or less removes the line."""
+    if not req.product_id:
+        return JSONResponse(
+            {"status": "error", "message": "product_id is required."},
+            status_code=400,
+        )
+    return await cart_set_quantity(req.session_id, req.product_id, req.quantity)
 
 
 @app.get("/cart")
@@ -503,6 +526,21 @@ async def chat_endpoint(request: ChatRequest):
 # (specialists exposed as AgentTool). Product/try-on cards are drained from the
 # same contextvar sinks the SSE path uses.
 
+
+def _reset_search_budget() -> None:
+    """Reset the stylist's per-turn search budget at a /live turn boundary.
+
+    Unlike /chat and /live_sinhala, the /live loop is one long run_live stream with
+    no per-turn re-entry, so the budget set once at connect would otherwise climb
+    across the whole session and lock the stylist out after ~6 searches. Mutate the
+    HELD dict in place (not search_counter.set): the callbacks read the object the
+    downstream task inherited at connect time, and a .set() here forks a new binding
+    they'd never see (see the contextvar note in CLAUDE.md)."""
+    counter = search_counter.get()
+    if counter is not None:
+        counter["n"] = 0
+
+
 @app.websocket("/live")
 async def live_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -531,7 +569,8 @@ async def live_endpoint(websocket: WebSocket):
     run_config = RunConfig(
         streaming_mode=StreamingMode.BIDI,
         response_modalities=["AUDIO"],
-        speech_config=types.SpeechConfig(language_code=locale),
+        speech_config=types.SpeechConfig(language_code=locale,voice_config=types.VoiceConfig(
+        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Kore"))),
         # Give us the text alongside the audio (for on-screen captions).
         output_audio_transcription=types.AudioTranscriptionConfig(),
         input_audio_transcription=types.AudioTranscriptionConfig(),
@@ -670,9 +709,11 @@ async def live_endpoint(websocket: WebSocket):
 
             if getattr(event, "interrupted", None):
                 spoken = ""
+                _reset_search_budget()  # barge-in begins a fresh user turn
                 await send_json({"type": "interrupted"})
             if getattr(event, "turn_complete", None):
                 spoken = ""
+                _reset_search_budget()  # next turn starts with a full stylist budget
                 await send_json({"type": "turn_complete"})
             # The Live session is about to be torn down (time cap) — tell the
             # client to reconnect with the same session_id.
@@ -761,8 +802,12 @@ async def _run_sinhala_turn(session_id: str, transcript: str) -> str:
     message = types.Content(
         role="user", parts=[types.Part(text=_sinhala_voice_prompt(transcript))]
     )
+    # Run on the SHARED bridge runner (same session store the /cart widget reads),
+    # so a Sinhala voice "add to cart" is visible to the 3D UI just like the Gemini
+    # live and click-to-add paths — not stranded in main.py's separate text runner.
+    await ensure_shared_session(session_id)
     streamed_final = ""
-    async for event in runner.run_async(
+    async for event in shared_runner.run_async(
         user_id=USER_ID, session_id=session_id, new_message=message
     ):
         if getattr(event, "error_code", None):

@@ -81,7 +81,7 @@ export async function requestTryOn(
 
 export async function addToCart(
   sessionId: string,
-  product: { id: string; name?: string; price?: number; category?: string }
+  product: { id: string; name?: string; price?: number; category?: string; image_url?: string }
 ): Promise<CartResult> {
   const res = await fetch("/cart", {
     method: "POST",
@@ -92,6 +92,7 @@ export async function addToCart(
       name: product.name || "Product",
       category: product.category || "",
       price: Math.round(product.price ?? 0),
+      image_url: product.image_url || "",
     }),
   });
   return res.json();
@@ -107,6 +108,21 @@ export async function saveCheckoutDetails(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sessionId, ...details }),
+  });
+  return res.json();
+}
+
+// Set a cart line's quantity to an absolute value (no LLM). A quantity of 0 or
+// less removes the line, matching the backend's manage_cart "update" semantics.
+export async function updateCartQuantity(
+  sessionId: string,
+  productId: string,
+  quantity: number
+): Promise<CartResult> {
+  const res = await fetch("/cart/update", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, product_id: productId, quantity }),
   });
   return res.json();
 }

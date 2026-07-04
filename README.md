@@ -6,6 +6,13 @@ A Sri Lankan **fashion shopping assistant** built on [Google ADK](https://github
 
 ---
 
+## Demo
+
+- **Live demo:** https://13-206-93-47.sslip.io/
+- **Video walkthrough:** https://www.loom.com/share/6bd7f897f5ac451ba90c7f7b1c7ed93f
+
+---
+
 ## Features
 
 - **Conversational shopping** over Kapruka's live catalog (search, browse, cart).

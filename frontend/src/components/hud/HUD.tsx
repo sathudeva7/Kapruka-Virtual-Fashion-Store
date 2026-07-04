@@ -3,7 +3,7 @@
 import { useRef, useState, type CSSProperties } from "react";
 import { useStore, type Lang, type ProductItem, type CartState, type CheckoutDetails } from "@/lib/store";
 import { getVoiceClient } from "@/lib/voice";
-import { uploadPhoto, imgUrl, requestTryOn, addToCart, fetchCart, removeFromCart, saveCheckoutDetails, trackOrder, type CartResult } from "@/lib/api";
+import { uploadPhoto, imgUrl, requestTryOn, addToCart, fetchCart, removeFromCart, updateCartQuantity, saveCheckoutDetails, trackOrder, type CartResult } from "@/lib/api";
 import type { TrackingItem } from "@/lib/store";
 import { getSessionId } from "@/lib/session";
 import { TRYON_ROOM } from "@/lib/scene";
@@ -168,6 +168,7 @@ export default function HUD() {
         id: product.id,
         name: product.name,
         price: product.price,
+        image_url: product.image_url,
       });
       if (out.status !== "ok") {
         throw new Error(out.message || "Could not add to cart.");
@@ -208,6 +209,23 @@ export default function HUD() {
     try {
       const out = await removeFromCart(getSessionId(), productId);
       if (out.status !== "ok") throw new Error(out.message || "Could not remove item.");
+      setCart(cartFrom(out));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  // Set a cart line's quantity to an absolute value; 0 (from stepping down at 1)
+  // removes the line on the backend. Reuses removingId as the per-line busy gate.
+  async function onChangeQty(productId: string, nextQty: number) {
+    if (removingId) return;
+    setRemovingId(productId);
+    setError(null);
+    try {
+      const out = await updateCartQuantity(getSessionId(), productId, nextQty);
+      if (out.status !== "ok") throw new Error(out.message || "Could not update quantity.");
       setCart(cartFrom(out));
     } catch (err) {
       setError((err as Error).message);
@@ -359,62 +377,112 @@ export default function HUD() {
         </button>
       </div>
 
-      {/* expandable cart trolley */}
+      {/* expandable cart trolley — editorial-boutique treatment */}
       {cartOpen && (
-        <div style={{ ...panel({ top: 64, right: 16 }), width: 300, maxWidth: "calc(100% - 32px)", padding: 0, overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: "1px solid #eee" }}>
-            <div style={{ fontWeight: 700 }}>🛒 Your cart{cart.count > 0 ? ` · ${cart.count}` : ""}</div>
-            <button onClick={() => setCartOpen(false)} style={iconBtn} aria-label="Close cart">
+        <div style={{ ...panel({ top: 64, right: 16 }), width: 344, maxWidth: "calc(100% - 32px)", padding: 0, overflow: "hidden", background: "rgba(255,253,249,0.97)", border: "1px solid #efe7d5" }}>
+          <div style={cartHeader}>
+            <div>
+              <div style={cartEyebrow}>Kapruka · your selection</div>
+              <div style={cartTitle}>
+                The Cart
+                {cart.count > 0 && <span style={cartCountChip}>{cart.count}</span>}
+              </div>
+            </div>
+            <button onClick={() => setCartOpen(false)} style={cartClose} aria-label="Close cart">
               ✕
             </button>
           </div>
+
           {cart.items.length === 0 ? (
-            <div style={{ padding: "18px 14px", fontSize: 13, opacity: 0.65 }}>
-              Your cart is empty. Open a product and tap “🛒 Add to cart”.
+            <div style={cartEmpty}>
+              <div style={{ fontFamily: SERIF, fontSize: 16, color: "#211c16", marginBottom: 6 }}>
+                Nothing selected yet
+              </div>
+              Open a piece and tap “Add to cart” to start building your look.
             </div>
           ) : (
             <>
-              <div style={{ maxHeight: 300, overflowY: "auto" }}>
-                {cart.items.map((line) => (
-                  <div
-                    key={line.product_id}
-                    style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "10px 14px", borderBottom: "1px solid #f2f2f2" }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {line.name}
+              <div style={{ maxHeight: 336, overflowY: "auto" }}>
+                {cart.items.map((line) => {
+                  const busy = removingId === line.product_id;
+                  const thumb = imgUrl(line.image_url);
+                  return (
+                    <div key={line.product_id} style={{ ...cartLine, opacity: busy ? 0.5 : 1 }}>
+                      <div style={cartThumb}>
+                        {thumb ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        ) : (
+                          <span style={cartMonogram}>{(line.name || "?").trim().charAt(0).toUpperCase()}</span>
+                        )}
                       </div>
-                      <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>
-                        {line.quantity} × {fmtPrice(line.unit_price, cart.currency)}
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={cartLineTop}>
+                          <div style={cartLineName}>{line.name}</div>
+                          <button
+                            onClick={() => onRemoveFromCart(line.product_id)}
+                            disabled={busy}
+                            style={cartRemove}
+                            title="Remove from cart"
+                            aria-label={`Remove ${line.name}`}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <div style={cartUnit}>{fmtPrice(line.unit_price, cart.currency)} each</div>
+                        <div style={cartLineBottom}>
+                          <div style={qtyPill}>
+                            <button
+                              onClick={() => onChangeQty(line.product_id, line.quantity - 1)}
+                              disabled={busy}
+                              style={qtyPillBtn}
+                              title={line.quantity <= 1 ? "Remove from cart" : "Decrease quantity"}
+                              aria-label={`Decrease ${line.name} quantity`}
+                            >
+                              −
+                            </button>
+                            <span style={qtyValue}>{line.quantity}</span>
+                            <button
+                              onClick={() => onChangeQty(line.product_id, line.quantity + 1)}
+                              disabled={busy}
+                              style={qtyPillBtn}
+                              title="Increase quantity"
+                              aria-label={`Increase ${line.name} quantity`}
+                            >
+                              +
+                            </button>
+                          </div>
+                          <div style={cartLineTotal}>{fmtPrice(line.unit_price * line.quantity, cart.currency)}</div>
+                        </div>
                       </div>
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>
-                        {fmtPrice(line.unit_price * line.quantity, cart.currency)}
-                      </div>
-                      <button
-                        onClick={() => onRemoveFromCart(line.product_id)}
-                        disabled={removingId === line.product_id}
-                        style={{ ...iconBtn, fontSize: 15, color: "#a12", opacity: removingId === line.product_id ? 0.4 : 1 }}
-                        title="Remove from cart"
-                        aria-label={`Remove ${line.name}`}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 14px", fontWeight: 700, borderTop: "1px solid #eee" }}>
-                <span>Total</span>
-                <span style={{ color: "#7a5c10" }}>{fmtPrice(cart.total, cart.currency)}</span>
+
+              <div style={{ padding: "0 16px" }}>
+                <div style={goldRule} />
               </div>
-              <div style={{ padding: "0 14px 14px" }}>
+              <div style={cartTotalRow}>
+                <div>
+                  <div style={cartTotalLabel}>Total</div>
+                  <div style={cartTotalCount}>{cart.count} item{cart.count === 1 ? "" : "s"}</div>
+                </div>
+                <div>
+                  <span style={priceText}>{new Intl.NumberFormat("en-LK").format(cart.total)}</span>
+                  <span style={priceCurrency}>{cart.currency}</span>
+                </div>
+              </div>
+              <div style={{ padding: "6px 16px 16px" }}>
                 <button
                   onClick={() => { setCartOpen(false); setCheckoutOpen(true); }}
-                  style={{ ...payBtn, width: "100%", textAlign: "center", background: checkoutSaved ? "#196b3a" : "#9b3463" }}
+                  style={{
+                    ...cartCta,
+                    background: checkoutSaved ? "#1b6b3a" : "#9b3463",
+                    boxShadow: checkoutSaved ? "0 8px 20px rgba(27,107,58,0.26)" : "0 8px 20px rgba(155,52,99,0.26)",
+                  }}
                 >
-                  {checkoutSaved ? "✓ Delivery details saved — edit" : "📝 Type delivery details"}
+                  {checkoutSaved ? "✓ Delivery details saved — edit" : "Add delivery details"}
                 </button>
               </div>
             </>
@@ -940,6 +1008,212 @@ const modal: CSSProperties = {
 
 // --- product detail card (editorial-boutique treatment) ----------------
 const SERIF = "Georgia, 'Iowan Old Style', 'Times New Roman', serif";
+
+// --- cart trolley (shares the boutique palette: brass, gold hairline, ink) ---
+const cartHeader: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  padding: "14px 16px 12px",
+  borderBottom: "1px solid #f0e9db",
+};
+
+const cartEyebrow: CSSProperties = {
+  fontSize: 9.5,
+  fontWeight: 700,
+  letterSpacing: "1.4px",
+  textTransform: "uppercase",
+  color: "#b9a06a",
+  marginBottom: 3,
+};
+
+const cartTitle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontFamily: SERIF,
+  fontSize: 19,
+  fontWeight: 600,
+  color: "#211c16",
+  lineHeight: 1,
+};
+
+const cartCountChip: CSSProperties = {
+  minWidth: 20,
+  height: 20,
+  padding: "0 6px",
+  borderRadius: 999,
+  background: "#9b3463",
+  color: "#fff",
+  fontFamily: "system-ui, sans-serif",
+  fontSize: 11,
+  fontWeight: 700,
+  lineHeight: "20px",
+  textAlign: "center",
+};
+
+const cartClose: CSSProperties = {
+  border: "none",
+  background: "transparent",
+  cursor: "pointer",
+  fontSize: 14,
+  lineHeight: 1,
+  padding: 4,
+  color: "#8a7f70",
+};
+
+const cartEmpty: CSSProperties = {
+  padding: "22px 18px 26px",
+  fontSize: 13,
+  lineHeight: 1.6,
+  color: "#8a7f70",
+};
+
+const cartLine: CSSProperties = {
+  display: "flex",
+  gap: 12,
+  padding: "13px 16px",
+  borderBottom: "1px solid #f4eee1",
+};
+
+const cartThumb: CSSProperties = {
+  flexShrink: 0,
+  width: 52,
+  height: 64,
+  borderRadius: 8,
+  overflow: "hidden",
+  background: "#f2eee6",
+  border: "1px solid #ece3d0",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const cartMonogram: CSSProperties = {
+  fontFamily: SERIF,
+  fontSize: 22,
+  fontWeight: 600,
+  color: "#c2a86a",
+};
+
+const cartLineTop: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: 8,
+};
+
+const cartLineName: CSSProperties = {
+  fontFamily: SERIF,
+  fontSize: 14.5,
+  lineHeight: 1.3,
+  fontWeight: 600,
+  color: "#211c16",
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+};
+
+const cartUnit: CSSProperties = {
+  fontSize: 11.5,
+  color: "#9a8f7d",
+  marginTop: 3,
+  letterSpacing: "0.2px",
+};
+
+const cartLineBottom: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 8,
+  marginTop: 9,
+};
+
+const cartRemove: CSSProperties = {
+  flexShrink: 0,
+  border: "none",
+  background: "transparent",
+  cursor: "pointer",
+  fontSize: 12,
+  lineHeight: 1,
+  padding: 2,
+  color: "#c9bda8",
+};
+
+const qtyPill: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  border: "1px solid #e4dcc9",
+  borderRadius: 999,
+  background: "#fffdf8",
+  overflow: "hidden",
+};
+
+const qtyPillBtn: CSSProperties = {
+  width: 28,
+  height: 28,
+  border: "none",
+  background: "transparent",
+  cursor: "pointer",
+  fontSize: 16,
+  lineHeight: 1,
+  padding: 0,
+  color: "#7a5c10",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const qtyValue: CSSProperties = {
+  minWidth: 22,
+  textAlign: "center",
+  fontSize: 13,
+  fontWeight: 700,
+  color: "#211c16",
+};
+
+const cartLineTotal: CSSProperties = {
+  fontFamily: SERIF,
+  fontSize: 14,
+  fontWeight: 700,
+  color: "#a87c28",
+  whiteSpace: "nowrap",
+};
+
+const cartTotalRow: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-end",
+  justifyContent: "space-between",
+  padding: "12px 16px 4px",
+};
+
+const cartTotalLabel: CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: "1.4px",
+  textTransform: "uppercase",
+  color: "#8a7f70",
+};
+
+const cartTotalCount: CSSProperties = {
+  fontSize: 11.5,
+  color: "#a89c86",
+  marginTop: 2,
+};
+
+const cartCta: CSSProperties = {
+  width: "100%",
+  textAlign: "center",
+  color: "#fff",
+  border: "none",
+  padding: "13px 16px",
+  borderRadius: 11,
+  fontSize: 14.5,
+  fontWeight: 700,
+  letterSpacing: "0.2px",
+  cursor: "pointer",
+};
 
 const productCard: CSSProperties = {
   position: "relative",

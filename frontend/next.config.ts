@@ -21,6 +21,7 @@ const nextConfig: NextConfig = isExport
           { source: "/try_on", destination: `${BACKEND}/try_on` },
           { source: "/cart", destination: `${BACKEND}/cart` },
           { source: "/cart/remove", destination: `${BACKEND}/cart/remove` },
+          { source: "/cart/update", destination: `${BACKEND}/cart/update` },
           { source: "/checkout_details", destination: `${BACKEND}/checkout_details` },
           { source: "/upload_photo", destination: `${BACKEND}/upload_photo` },
           { source: "/voice_sinhala", destination: `${BACKEND}/voice_sinhala` },
