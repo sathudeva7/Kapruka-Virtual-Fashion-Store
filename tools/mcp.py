@@ -26,9 +26,26 @@ _RETRY_SAFE_TOOLS = {
 _RETRY_DELAY_SECONDS = 0.6
 
 
+async def _reset_sessions(session_manager) -> None:
+    """Drop the manager's cached MCP sessions so the next call reconnects.
+
+    The Kapruka server expires long-lived streamable-HTTP sessions. When that
+    happens the client's local read/write streams stay open, so ADK's
+    _is_session_disconnected check keeps handing back the dead session and
+    every call fails with McpError("Session terminated") until the process
+    restarts. close() clears the session cache; the manager stays usable and
+    create_session() builds a fresh session on the next call.
+    """
+    try:
+        await session_manager.close()
+    except Exception:
+        logger.warning("Failed to reset MCP sessions before retry.", exc_info=True)
+
+
 def _wrap_retry(tool):
     """Wrap a read-only MCP tool's run_async so a single transient failure
-    (timeout / dropped connection on the free tier) is retried once."""
+    (timeout / dropped connection / expired session on the free tier) is
+    retried once — against a freshly created MCP session."""
     name = getattr(tool, "name", None)
     if name not in _RETRY_SAFE_TOOLS or getattr(tool, "_kapruka_retry_wrapped", False):
         return tool
@@ -37,8 +54,9 @@ def _wrap_retry(tool):
     async def run_async(*, args, tool_context):
         try:
             return await original(args=args, tool_context=tool_context)
-        except Exception as exc:  # transient: timeout / connection reset
+        except Exception as exc:  # transient: timeout / reset / dead session
             logger.warning("MCP tool %s failed (%s); retrying once.", name, exc)
+            await _reset_sessions(tool._mcp_session_manager)
             await asyncio.sleep(_RETRY_DELAY_SECONDS)
             return await original(args=args, tool_context=tool_context)
 
@@ -48,10 +66,18 @@ def _wrap_retry(tool):
 
 
 class _RetryingMcpToolset(McpToolset):
-    """McpToolset that retries read-only tool calls once on a transient error."""
+    """McpToolset that retries once on a transient error, recreating the MCP
+    session in between (covers both tool listing and tool execution)."""
 
     async def get_tools(self, readonly_context=None):
-        return [_wrap_retry(t) for t in await super().get_tools(readonly_context)]
+        try:
+            tools = await super().get_tools(readonly_context)
+        except Exception as exc:
+            logger.warning("MCP get_tools failed (%s); retrying once.", exc)
+            await _reset_sessions(self._mcp_session_manager)
+            await asyncio.sleep(_RETRY_DELAY_SECONDS)
+            tools = await super().get_tools(readonly_context)
+        return [_wrap_retry(t) for t in tools]
 
 
 def _toolset(*tool_names: str) -> McpToolset:
