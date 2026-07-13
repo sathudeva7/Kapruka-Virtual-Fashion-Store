@@ -20,7 +20,7 @@ There are no tests, linters, or build steps configured. Verification is manual: 
 
 ## Architecture
 
-One package per agent plus a shared `tools/` package (mirrors the demo's `adk_backend/` layout). `main.py` is the FastAPI entrypoint at the root.
+One package per agent plus a shared `tools/` package (mirrors the demo's `adk_backend/` layout). `main.py` at the root is a thin uvicorn entrypoint (`main:app` — it only loads `.env` and calls `create_app()`); the FastAPI server itself lives in the `server/` package (`app.py` factory, `config.py`, `schemas.py`, `runners.py`, `streaming.py`, `capture.py`, and one router per concern under `server/routers/`).
 
 **Agent graph — `sub_agents` transfer delegation (not AgentTool):**
 - `rootagent/agent.py` — `ecommerce_agent`, a thin router. It delegates via `transfer_to_agent` to exactly one specialist per turn. **It deliberately carries no persona** — adding the VOICE block to the root reliably trips Gemini's `PROHIBITED_CONTENT` filter (see Gotchas).
@@ -35,7 +35,7 @@ One package per agent plus a shared `tools/` package (mirrors the demo's `adk_ba
 **Shared `tools/` package** (public names re-exported in `tools/__init__.py`):
 - `mcp.py` — `_toolset(*names)` builds an `McpToolset` over the remote streamable-HTTP endpoint, filtered to named tools (30s timeout — the free public tier is slow/rate-limited). Purpose-built subsets: `search_toolset`, `delivery_toolset`, `order_toolset`, `tracking_toolset` (`kapruka_track_order`).
 - `callbacks.py` — before/after tool callbacks (see capture pipeline below).
-- `sinks.py` — per-request contextvars: `product_sink`, `image_sink`, `search_counter`, `current_session_id`. `main.py` sets all four at the start of each `/chat` request; contextvars carry them through the agent nesting into tool callbacks. **Only mutate the held objects in place (append/increment) — a `.set()` inside a tool won't propagate across context copies.**
+- `sinks.py` — per-request contextvars: `product_sink`, `image_sink`, `search_counter`, `current_session_id`. `server/capture.py` (`TurnCapture.bind`) sets them at the start of each `/chat` request; contextvars carry them through the agent nesting into tool callbacks. **Only mutate the held objects in place (append/increment) — a `.set()` inside a tool won't propagate across context copies.**
 - `cart.py` — `manage_cart`: cart is `state["cart"]`, always **copy → modify → reassign** so ADK records the delta; totals are computed, never stored.
 - `persona.py` — shared VOICE / LANGUAGE blocks (Sinhala/Tamil/English/Singlish/Tanglish mirroring).
 
@@ -48,7 +48,7 @@ One package per agent plus a shared `tools/` package (mirrors the demo's `adk_ba
 
 **Virtual try-on (`fittingroom/tryon.py`)** — `async def try_on(tool_context, product_id)`: user photo (from `USER_PHOTOS`, keyed by `current_session_id`) + garment image (from `seen_products`, downloaded with a browser User-Agent — the CDN rejects bare clients) → `gemini-2.5-flash-image` → PNG saved to `static/generated/` (runtime output, served statically) → appended to `image_sink`. Returns structured statuses the agent instruction handles: `ok`, `no_photo`, `unknown_product`, `garment_image_failed`, `generation_failed`. `USER_PHOTOS` is in-memory by design (cleared on `--reload`; raw user photos are never written under `/static`). **This module must not import FastAPI** — `adk web` imports the agent graph. Image generation takes 10–30s and bills per image.
 
-**Streaming server (`main.py`)** — one process-wide `InMemoryRunner` (sessions in memory, tracked in `_known_sessions`). Endpoints: `GET /` (UI), `POST /chat` (SSE), `POST /upload_photo` (multipart: `session_id` + `photo`; JPEG/PNG/WebP, 8 MB cap → `USER_PHOTOS`). The `/chat` stream drains the sinks **before** the prose. SSE frames:
+**Streaming server (`server/` package)** — one process-wide `InMemoryRunner` (sessions in memory, tracked in `server/runners.py`). Endpoints live in `server/routers/`: `system.py` (health, `/img` proxy, `/upload_photo`), `commerce.py` (no-LLM cart/try-on/track endpoints), `chat.py` (`POST /chat` SSE), `voice_live.py` (`/live` WS), `voice_sinhala.py` (`/voice_sinhala`, `/live_sinhala`). `/upload_photo` is multipart (`session_id` + `photo`; JPEG/PNG/WebP, 8 MB cap → the photo store). The `/chat` stream drains the sinks **before** the prose. SSE frames:
 
 | frame | shape |
 |---|---|
@@ -65,7 +65,7 @@ One package per agent plus a shared `tools/` package (mirrors the demo's `adk_ba
 ## Conventions & gotchas
 
 - Agent logic lives in each package's `agent.py`; shared toolsets/callbacks/sinks in `tools/`. `rootagent`, `kapruka_concierge` and `workflow`-era wrappers contain no logic.
-- If you change card fields or SSE frames, update **both** `_card()` in `main.py` and the rendering in `static/index.html`.
+- If you change card fields or SSE frames, update **both** `product_card()` in `server/streaming.py` and the rendering in `static/index.html`.
 - **Gemini content filter:** long persona + long instruction on a sub-agent deterministically triggers `PROHIBITED_CONTENT` (empty turn, no error frame — the event has `error_code=PROHIBITED_CONTENT`). It is cumulative, not one phrase. Keep `stylist`/`fittingroom`/root instructions short; only catalog/checkout carry the full persona.
 - The Kapruka MCP server is the source of truth for arg validation; `_normalize_search_params` only mirrors the values it needs. The search `category` filter has **patchy coverage** (e.g. "Saree" matches nothing while bare `q="saree"` works) — agents are instructed to prefer keyword queries and drop `category` on empty results.
 - The search index also returns duplicates and fuzzy mismatches; dedupe-by-id happens in `_items_from_tool_response`.
