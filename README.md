@@ -7,6 +7,11 @@ A Sri Lankan **fashion shopping assistant** built on [Google ADK](https://github
 ---
 
 ## Demo
+<img width="1680" height="807" alt="Screenshot 2026-07-13 at 13 39 16" src="https://github.com/user-attachments/assets/9503b1e7-9b70-4d21-b2e2-d5c067836b3a" />
+<img width="1680" height="807" alt="Screenshot 2026-07-13 at 13 43 35" src="https://github.com/user-attachments/assets/dd284699-97e5-4129-a394-d8e0893c10af" />
+<img width="1680" height="807" alt="Screenshot 2026-07-13 at 13 45 01" src="https://github.com/user-attachments/assets/eece4e58-c9be-45db-980e-d3ba2cfd4c64" />
+
+
 
 - **Live demo:** https://13-206-93-47.sslip.io/
 - **Video walkthrough:** https://www.loom.com/share/6bd7f897f5ac451ba90c7f7b1c7ed93f
