@@ -7,9 +7,14 @@ A Sri Lankan **fashion shopping assistant** built on [Google ADK](https://github
 ---
 
 ## Demo
-<img width="1680" height="807" alt="Screenshot 2026-07-13 at 13 39 16" src="https://github.com/user-attachments/assets/9503b1e7-9b70-4d21-b2e2-d5c067836b3a" />
-<img width="1680" height="807" alt="Screenshot 2026-07-13 at 13 43 35" src="https://github.com/user-attachments/assets/dd284699-97e5-4129-a394-d8e0893c10af" />
-<img width="1680" height="807" alt="Screenshot 2026-07-13 at 13 45 01" src="https://github.com/user-attachments/assets/eece4e58-c9be-45db-980e-d3ba2cfd4c64" />
+<table>
+  <tr>
+    <td width="25%"><img src="https://github.com/user-attachments/assets/9503b1e7-9b70-4d21-b2e2-d5c067836b3a" alt="Screenshot 1"></td>
+    <td width="25%"><img src="https://github.com/user-attachments/assets/dd284699-97e5-4129-a394-d8e0893c10af" alt="Screenshot 2"></td>
+    <td width="25%"><img src="https://github.com/user-attachments/assets/eece4e58-c9be-45db-980e-d3ba2cfd4c64" alt="Screenshot 3"></td>
+    <td width="25%"><img src="https://github.com/user-attachments/assets/5347f49a-b9cb-40c2-9d2b-9ab17e242da8" alt="Screenshot 4"></td>
+  </tr>
+</table>
 
 
 
